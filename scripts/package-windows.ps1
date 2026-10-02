@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
+    [Parameter(Mandatory = $true)][string]$VcpkgInstallDirectory,
     [Parameter(Mandatory = $true)][string]$SourceDirectory,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [Parameter(Mandatory = $true)][string]$Commit
@@ -10,6 +11,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $install = (Resolve-Path -LiteralPath $InstallDirectory).Path
+$vcpkgInstall = (Resolve-Path -LiteralPath $VcpkgInstallDirectory).Path
 $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 $engine = Join-Path $source 'upstream/KytyPS5'
@@ -18,7 +20,8 @@ $vcpkgSha = 'df8bfe519564ae001903e5cdd32af0999531ef71'
 $ffmpegArchiveSha256 = '32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09'
 $patchPaths = @(
     'patches/upstream/0001-mohammedlab-launcher.patch',
-    'patches/upstream/0002-ffmpeg-source-lock.patch'
+    'patches/upstream/0002-ffmpeg-source-lock.patch',
+    'patches/upstream/0003-vulkan-extent-initializers.patch'
 )
 
 if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt'))) {
@@ -90,7 +93,7 @@ $licenseFiles = Get-ChildItem -LiteralPath $engine -Force -Recurse -File |
 if (-not ($licenseFiles | Where-Object { $_.FullName -eq (Join-Path $engine 'LICENSE') })) {
     throw 'Upstream GPL license file is missing'
 }
-if (-not ($licenseFiles | Where-Object { $_.FullName -eq (Join-Path $engine 'LICENSES/Kyty-MIT.txt') })) {
+if (-not (Test-Path -LiteralPath (Join-Path $engine 'LICENSES/Kyty-MIT.txt') -PathType Leaf)) {
     throw 'Original Kyty MIT notice is missing'
 }
 $ffmpegLicenseDirectory = Join-Path $install 'licenses/ffmpeg'
@@ -114,6 +117,22 @@ $qtLicenseFiles = @(Get-ChildItem -LiteralPath $qtLicenseRoot -Force -Recurse -F
 if ($qtLicenseFiles.Count -eq 0) {
     throw 'No Qt license notices found in the pinned Qt installation'
 }
+$vcpkgLicenseFiles = @(Get-ChildItem -LiteralPath (Join-Path $vcpkgInstall 'share') `
+        -Directory -Force |
+    ForEach-Object {
+        $license = Join-Path $_.FullName 'copyright'
+        if (Test-Path -LiteralPath $license -PathType Leaf) {
+            Get-Item -LiteralPath $license
+        }
+    })
+$requiredVcpkgLicenses = @('glslang', 'spirv-tools', 'spirv-headers')
+foreach ($packageName in $requiredVcpkgLicenses) {
+    if (-not ($vcpkgLicenseFiles | Where-Object {
+        $_.Directory.Name -ieq $packageName
+    })) {
+        throw "Required vcpkg license notice is missing: $packageName"
+    }
+}
 
 if (Test-Path -LiteralPath $output) {
     Remove-Item -LiteralPath $output -Recurse -Force
@@ -125,6 +144,8 @@ $licenseDestination = Join-Path $package 'licenses/third-party'
 New-Item -ItemType Directory -Path $licenseDestination -Force | Out-Null
 $qtLicenseDestination = Join-Path $package 'licenses/Qt'
 New-Item -ItemType Directory -Path $qtLicenseDestination -Force | Out-Null
+$vcpkgLicenseDestination = Join-Path $package 'licenses/vcpkg'
+New-Item -ItemType Directory -Path $vcpkgLicenseDestination -Force | Out-Null
 
 try {
     Get-ChildItem -LiteralPath $install -Force |
@@ -144,6 +165,13 @@ try {
     foreach ($license in $qtLicenseFiles) {
         $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
         $destination = Join-Path $qtLicenseDestination $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $license.FullName -Destination $destination
+    }
+    foreach ($license in $vcpkgLicenseFiles) {
+        $relative = [System.IO.Path]::GetRelativePath(
+            (Join-Path $vcpkgInstall 'share'), $license.Directory.FullName)
+        $destination = Join-Path (Join-Path $vcpkgLicenseDestination $relative) 'copyright'
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $license.FullName -Destination $destination
     }
@@ -168,7 +196,7 @@ try {
         "Pinned KytyPS5 commit: $upstreamSha",
         "Qt version: 6.10.3",
         "Pinned vcpkg revision: $vcpkgSha",
-        "Pinned glslang version: 15.1.0 with tools,opt features",
+        "Pinned glslang version: 15.1.0 with tools,opt features; vcpkg copyright notices are included under licenses/vcpkg",
         "Pinned FFmpeg recipe/source: ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341",
         "FFmpeg Windows x64 archive SHA256: $ffmpegArchiveSha256",
         'Emulator: upstream kyty_emulator.exe built from the pinned source',
@@ -244,6 +272,64 @@ try {
         $archive.Dispose()
     }
 
+    $sourceArchive = [System.IO.Compression.ZipFile]::Open(
+        $sourceZip, [System.IO.Compression.ZipArchiveMode]::Update
+    )
+    try {
+        foreach ($license in $qtLicenseFiles) {
+            $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
+            $entryName = "MohammedLab-PS5-source/licenses/Qt/$($relative -replace '\\', '/')"
+            $entry = $sourceArchive.CreateEntry(
+                $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+            )
+            $entryStream = $entry.Open()
+            $inputStream = [System.IO.File]::OpenRead($license.FullName)
+            try {
+                $inputStream.CopyTo($entryStream)
+            }
+            finally {
+                $inputStream.Dispose()
+                $entryStream.Dispose()
+            }
+        }
+        foreach ($relativePath in @('copyright', 'SOURCE.txt', 'build-log.txt')) {
+            $licensePath = Join-Path $ffmpegLicenseDirectory $relativePath
+            $entryName = "MohammedLab-PS5-source/licenses/ffmpeg/$relativePath"
+            $entry = $sourceArchive.CreateEntry(
+                $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+            )
+            $entryStream = $entry.Open()
+            $inputStream = [System.IO.File]::OpenRead($licensePath)
+            try {
+                $inputStream.CopyTo($entryStream)
+            }
+            finally {
+                $inputStream.Dispose()
+                $entryStream.Dispose()
+            }
+        }
+        foreach ($license in $vcpkgLicenseFiles) {
+            $relative = [System.IO.Path]::GetRelativePath(
+                (Join-Path $vcpkgInstall 'share'), $license.Directory.FullName)
+            $entryName = "MohammedLab-PS5-source/licenses/vcpkg/$($relative -replace '\\', '/')/copyright"
+            $entry = $sourceArchive.CreateEntry(
+                $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+            )
+            $entryStream = $entry.Open()
+            $inputStream = [System.IO.File]::OpenRead($license.FullName)
+            try {
+                $inputStream.CopyTo($entryStream)
+            }
+            finally {
+                $inputStream.Dispose()
+                $entryStream.Dispose()
+            }
+        }
+    }
+    finally {
+        $sourceArchive.Dispose()
+    }
+
     foreach ($zip in @($binaryZip, $sourceZip)) {
         $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
         try {
@@ -277,7 +363,10 @@ try {
             'launcher.exe', 'kyty_emulator.exe', 'platforms/qwindows.dll',
             'build-manifest.txt', 'README-EN.md', 'README-AR.md', 'LICENSE',
             'LICENSES-Kyty-MIT.txt', 'licenses/Qt/', 'licenses/ffmpeg/copyright',
-            'licenses/ffmpeg/SOURCE.txt', 'licenses/ffmpeg/build-log.txt'
+            'licenses/ffmpeg/SOURCE.txt', 'licenses/ffmpeg/build-log.txt',
+            'licenses/vcpkg/glslang/copyright',
+            'licenses/vcpkg/spirv-tools/copyright',
+            'licenses/vcpkg/spirv-headers/copyright'
         )) {
             if ($requiredEntry.EndsWith('/') -and
                 -not ($entries | Where-Object { $_.StartsWith($requiredEntry) })) {
@@ -299,39 +388,24 @@ try {
             'MohammedLab-PS5-source/.gitmodules',
             'MohammedLab-PS5-source/upstream/KytyPS5/CMakeLists.txt',
             'MohammedLab-PS5-source/upstream/KytyPS5/src/main.cpp',
+            'MohammedLab-PS5-source/upstream/KytyPS5/src/launcher/src/launcherLanguage.cpp',
             'MohammedLab-PS5-source/upstream/KytyPS5/3rdparty/SDL3/CMakeLists.txt',
             'MohammedLab-PS5-source/upstream/KytyPS5/3rdparty/ffmpeg-core/CMakeLists.txt',
             'MohammedLab-PS5-source/patches/upstream/0001-mohammedlab-launcher.patch',
             'MohammedLab-PS5-source/patches/upstream/0002-ffmpeg-source-lock.patch',
+            'MohammedLab-PS5-source/patches/upstream/0003-vulkan-extent-initializers.patch',
             'MohammedLab-PS5-source/scripts/apply-upstream-patches.ps1',
             'MohammedLab-PS5-source/upstream.lock',
+            'MohammedLab-PS5-source/licenses/vcpkg/glslang/copyright',
+            'MohammedLab-PS5-source/licenses/vcpkg/spirv-tools/copyright',
+            'MohammedLab-PS5-source/licenses/vcpkg/spirv-headers/copyright',
+            'MohammedLab-PS5-source/licenses/ffmpeg/copyright',
+            'MohammedLab-PS5-source/licenses/ffmpeg/SOURCE.txt',
+            'MohammedLab-PS5-source/licenses/ffmpeg/build-log.txt',
             'MohammedLab-PS5-source/build-manifest.txt'
         )) {
             if ($requiredEntry -notin $sourceEntries) {
                 throw "Required recursive source archive entry missing: $requiredEntry"
-            }
-        }
-    }
-    finally {
-        $sourceArchive.Dispose()
-    }
-
-    $sourceArchive = [System.IO.Compression.ZipFile]::Open($sourceZip, [System.IO.Compression.ZipArchiveMode]::Update)
-    try {
-        foreach ($license in $qtLicenseFiles) {
-            $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
-            $entryName = "MohammedLab-PS5-source/licenses/Qt/$($relative -replace '\\', '/')"
-            $entry = $sourceArchive.CreateEntry(
-                $entryName, [System.IO.Compression.CompressionLevel]::Optimal
-            )
-            $entryStream = $entry.Open()
-            $inputStream = [System.IO.File]::OpenRead($license.FullName)
-            try {
-                $inputStream.CopyTo($entryStream)
-            }
-            finally {
-                $inputStream.Dispose()
-                $entryStream.Dispose()
             }
         }
     }

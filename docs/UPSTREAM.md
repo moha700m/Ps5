@@ -20,29 +20,60 @@ git -C upstream/KytyPS5 rev-parse HEAD
 The root workflow applies the version-controlled patches in
 `patches/upstream/` to clean recursive submodule worktrees before configuring.
 `scripts/apply-upstream-patches.ps1` checks each patch before applying and
-fails on unexpected dirty source. The CI build and source archive therefore
-contain the same native changes without committing edits inside nested
-submodules. One patch updates the pinned FFmpeg submodule CMake recipe to use
-the exact Windows x64 release digest in `upstream.lock`, retry transient
+fails on unexpected dirty Git checkouts. It also recognizes an already-patched
+source ZIP, which has no `.git` metadata. The CI build and source archive
+therefore contain the same native changes without committing edits inside
+nested submodules. One patch updates the pinned FFmpeg submodule CMake recipe
+to use the exact Windows x64 release digest in `upstream.lock`, retry transient
 downloads at most three times, and support source archives without Git
 metadata.
+The small Vulkan-Hpp patch makes existing extent, offset, and descriptor-value
+assignments explicit; it resolves ambiguous assignment errors found in the
+local pinned-source build without changing renderer behavior.
 
 The Windows workflow checks out vcpkg at the immutable commit in the lock,
 verifies the `glslang` 15.1.0 port and features, then caches the resulting
 installed tree under a key containing that pin. The FFmpeg source revision is
 the pinned recursive gitlink; the actual static Windows archive digest is
 recorded separately. The FFmpeg install step contributes its copyright,
-build-log, and source provenance under `licenses/ffmpeg`.
+build-log, and source provenance under `licenses/ffmpeg`. Qt license texts
+and the installed vcpkg-port notices (glslang, SPIRV-Tools and SPIRV-Headers)
+are collected outside the engine tree into both binary and source deliveries.
 
 The recursive source ZIP includes initialized submodule source files, the
-patches and their application script, all pinned refs, and Qt license texts.
-The exact FetchContent commits remain fetched by CMake during a source rebuild;
-no generated `_Build` directory is required. A source ZIP is a source delivery,
-not a prebuilt development environment.
+already-applied native changes, their patches and application script, all
+pinned refs, and Qt/vcpkg license texts. It omits Git metadata and generated
+`_Build` files. `FetchContent` dependencies are fetched at the immutable
+revisions in `upstream.lock` during configuration; FFmpeg's Windows archive is
+downloaded only if missing and is verified against its recorded SHA-256.
+
+To rebuild from the source ZIP on Windows, install the pinned Qt 6.10.3
+MSVC2022 x64 package, Visual Studio 2022 x64 environment, CMake, Ninja and
+clang-cl, then restore vcpkg and build:
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git _Build/vcpkg
+git -C _Build/vcpkg checkout df8bfe519564ae001903e5cdd32af0999531ef71
+./_Build/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+./_Build/vcpkg/vcpkg.exe install 'glslang[tools,opt]:x64-windows'
+./scripts/apply-upstream-patches.ps1
+cmake -S upstream/KytyPS5 -B _Build/windows -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+  -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+cmake --build _Build/windows --target launcher kyty_emulator kyty_tests
+ctest --test-dir _Build/windows --output-on-failure --no-tests=error
+```
+
+The patch script detects that the included source patches are already applied.
+For a Git checkout instead, initialize recursive submodules first and run the
+script only on clean pinned trees. This is a reproducible build recipe, not
+evidence that a build or the final package has succeeded; see
+`docs/VERIFICATION.md`.
 
 Upstream code and dependency license notices remain in the recursive source
 delivery. The engine is GPL-2.0-only; the original Kyty MIT notice and each
-third-party license must be retained with any distribution. The package
-script adds Qt's installed license texts and fails if those or FFmpeg
-provenance files are missing. No Sony system software, SDK, keys, or game
-content is included.
+third-party license must be retained with any distribution. The package script
+adds Qt/vcpkg notices and fails if required Qt, vcpkg or FFmpeg provenance
+files are missing. No Sony system software, SDK, keys, or game content is
+included.

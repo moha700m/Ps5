@@ -109,7 +109,7 @@ jobs:
         shell: pwsh
         run: ./scripts/apply-upstream-patches.ps1
 
-      - name: Configure pinned baseline
+      - name: Configure patched pinned source
         id: configure
         shell: pwsh
         run: |
@@ -117,6 +117,7 @@ jobs:
           cmake -S upstream/KytyPS5 -B _Build/windows -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON `
+            -DBUILD_TESTING=ON `
             -DKYTY_BUILD_ORIGIN=Fork `
             -DKYTY_BUILD_REPOSITORY="${{ github.repository }}" `
             -DCMAKE_C_COMPILER=clang-cl `
@@ -151,6 +152,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CMake install failed' }
           ./scripts/package-windows.ps1 `
             -InstallDirectory _Build/windows/install `
+            -VcpkgInstallDirectory _Build/vcpkg/installed/x64-windows `
             -SourceDirectory . `
             -OutputDirectory artifacts `
             -Commit "${{ github.sha }}"

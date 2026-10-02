@@ -8,17 +8,31 @@ successful package.
 | Check | Result | Environment/evidence |
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
-| Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock` |
-| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: `action_required`; zero jobs started | [Initial run](https://github.com/moha700m/Ps5/actions/runs/36951673754), commit `a5b88831fc116035a275dc8c50a3f48d344c22ce`; owner approval is required |
-| All registered upstream CTest regressions | BLOCKED: build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no test result exists |
+| Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock`; the source ZIP includes the applied files and patches |
+| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: `action_required`; zero jobs started for revision `91f102adc18785eb73b0d4918d9373b80f9e57a6` | [Run 36960750536](https://github.com/moha700m/Ps5/actions/runs/36960750536); owner approval is required |
+| Local Linux CMake configure | PASS with SDL console mode only | CMake 3.31.6 / Qt 6.4.2 configured the patched source with pinned FetchContent dependencies and verified the FFmpeg archive digest; the normal desktop configure lacked X11/Wayland development packages. This does not validate Windows or a desktop UI |
+| Local Linux full launcher build | BLOCKED on a pinned upstream error | GCC 13.3 rejects the default constructor of `Ngs2RackOptionUnion` in `src/libs/ngs2.cpp:1183` because its members have non-trivial constructors. This is outside the UI/diagnostic patches; no emulation change was made. The required Windows clang-cl workflow remains approval-gated |
+| All registered upstream CTest regressions | BLOCKED: current revision build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no result exists for the current source. [Earlier run 36951845559](https://github.com/moha700m/Ps5/actions/runs/36951845559) was still at toolchain verification on the preceding revision |
 | Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | Workflow-gated | `scripts/package-windows.ps1`; missing licenses/runtime/source entries fail packaging |
+| Focused localization/configuration and renderer-classification tests | PASS (local Linux, Qt 6.4.2) | `LauncherPolicyTests.cpp` compiled with clang++ and passed; covers language persistence, first-run completion persistence, translation selection, and unknown/unsupported/supported classification |
+| SDL dialog and launcher-form compile checks | PASS (syntax/UI generation only) | Controller dialog compiled syntax-only against SDL3; Qt `uic` generated the patched main dialog. No GUI or physical controller was exercised |
+| Packaging/source ZIP script fixture | PASS (synthetic inputs only) | Temporary fake x64 PE headers, runtime files, and license fixtures exercised archive-entry/CRC/hash checks; both SHA-256 files verified and extracted source ZIP patch detection passed. This is not a Windows build or deliverable |
 | Tracked native Arabic/English UI, saved choice, RTL/LTR layout | Implemented; GUI test NOT TESTED | Built-in Qt translator and persistent interface-language setting; main UI plus selected game-library controls |
+| First-run onboarding | Implemented; GUI flow NOT TESTED | Offers actual hardware report, existing game-folder settings/scan, and real SDL tester in order; every step can be skipped |
 | Hardware diagnostics | Implemented; physical GPU test NOT TESTED | Queries Vulkan loader/devices and checks reported API/features/extensions; surface, queue presentation, and format checks remain explicitly unknown |
 | SDL gamepad diagnostic | Implemented; physical controller test NOT TESTED | Reads live SDL axes/buttons and polls connection/hotplug; does not claim in-game mapping or haptics |
+| Multi-GPU renderer selection, full dialog translation, controller deadzone/settings, save backup/export | NOT IMPLEMENTED in this change | Diagnostics enumerate adapters only; some upstream dialogs remain English; the tester does not change input mappings or add save-management behavior |
 | GUI startup and RTL screenshots | NOT TESTED | No Windows desktop session/screenshots are available here |
 | Physical Vulkan GPU rendering | NOT TESTED | Owner must test on a compatible Windows PC |
 | Specific game boot/menu/in-game/playable test | NOT TESTED | Owner must record title, version/title ID, status, duration, and crashes |
 | Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller, verify the diagnostic, and test actual game input |
+
+The most recent workflow execution with a job, run 36951845559 on the preceding
+source revision, was observed at toolchain verification. The Actions job-log
+endpoint returned HTTP 404 while that job was still running. The later run for
+revision `91f102adc18785eb73b0d4918d9373b80f9e57a6` is `action_required` with
+zero jobs; neither is evidence of a successful configure, build, CTest, or
+Windows package.
 
 ## Owner hardware checks
 

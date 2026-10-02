@@ -15,13 +15,14 @@ Arabic translation covers the main launcher and selected library controls;
 some advanced settings and dialogs remain in English. The hardware diagnostic
 queries the installed Vulkan loader and enumerated devices, checks selected
 renderer requirements, and marks surface/presentation compatibility unknown
-because it does not create a renderer. It does not install drivers.
+because it does not create a renderer. It lists adapters but does not offer
+renderer selection or install drivers.
 
-The SDL controller test displays live gamepad axes, buttons, and connection
-state. This is an input diagnostic, not proof of in-game input, adaptive
-triggers, or haptics. The first-run flow adds a language prompt and retains the
-upstream real game-folder discovery; it is not a complete guided hardware
-wizard.
+The first-run flow offers the real hardware report, the upstream game-folder
+configuration and scan, and the SDL gamepad tester in sequence; each can be
+skipped. The SDL test displays live axes, buttons, and connection state. It is
+not proof of in-game input, adaptive triggers, or haptics. This onboarding is
+not a complete compatibility wizard.
 
 See `README-AR.md` for Arabic notes and the source and license notices for
 provenance and redistribution terms.

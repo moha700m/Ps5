@@ -46,6 +46,8 @@ GitHub Actions (full commit pins):
 
 Tracked patches (applied to clean submodule checkouts by scripts/apply-upstream-patches.ps1):
   patches/upstream/0001-mohammedlab-launcher.patch
-    Native Qt bilingual language selection, SDL controller tester, Vulkan diagnostics, tests.
+    Native Qt language selection/onboarding, persistent setup state, SDL controller tester, Vulkan diagnostics, tests.
   patches/upstream/0002-ffmpeg-source-lock.patch
     Pinned Windows FFmpeg archive verification/retries and source-archive revision fallback.
+  patches/upstream/0003-vulkan-extent-initializers.patch
+    Use explicit Vulkan-Hpp value constructors where list assignment is ambiguous; no logic changes.
