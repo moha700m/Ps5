@@ -1,0 +1,29 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -664,0 +665,24 @@
++	set_tests_properties(
++		kernel_file_system
++		shader_recompiler_compute
++		shader_recompiler_alignbyte
++		graphics_pipeline_rasterization
++		command_scheduler_timeline
++		stream_buffer_ring
++		gpu_command_lane
++		pm4_context_state
++		gpu_tiler
++		texture_cache_layered_image
++		host_image_allocation
++		texture_cache_image_views
++		texture_cache_storage_sampled
++		compute_meta_clear_classification
++		buffer_cache_dirty_gc
++		color_render_target_1d
++		PROPERTIES LABELS "requires-vulkan-device"
++	)
++	if(WIN32)
++		set_tests_properties(texture_cache_image_overlap texture_cache_htile_clear
++			buffer_cache_ranges PROPERTIES LABELS "requires-vulkan-device")
++	endif()
++
+ 	add_custom_target(kyty_tests DEPENDS

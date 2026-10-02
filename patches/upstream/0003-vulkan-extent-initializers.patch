@@ -1,0 +1,273 @@
+diff --git a/src/graphics/host_gpu/renderer/cache/textureCache.cpp b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
+index 3b654a0..5bd78d7 100644
+--- a/src/graphics/host_gpu/renderer/cache/textureCache.cpp
++++ b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
+@@ -120,7 +120,7 @@ constexpr uint64_t NumFramesBeforeRemoval = 32;
+ 		copy.bufferRowLength   = info.pitch;
+ 		copy.bufferImageHeight = info.extent.height;
+ 		copy.imageSubresource  = {aspect, 0, layer, 1};
+-		copy.imageExtent       = {info.extent.width, info.extent.height, 1};
++		copy.imageExtent       = vk::Extent3D {info.extent.width, info.extent.height, 1};
+ 	}
+ 	return copies;
+ }
+@@ -492,7 +492,7 @@ ImageId TextureCache::GetNullImage(const ImageDesc& desc) {
+ 	info.pixel_format    = desc.info.pixel_format;
+ 	info.guest_format    = desc.info.guest_format;
+ 	info.type            = Prospero::ImageType::kColor2D;
+-	info.extent          = {1, 1, 1};
++	info.extent          = vk::Extent3D {1, 1, 1};
+ 	info.resources       = {1, 1};
+ 	info.pitch           = 1;
+ 	info.bytes_per_block = std::max(desc.info.bytes_per_block, 1u);
+@@ -1606,7 +1606,7 @@ void TextureCache::ClearImage(CommandBuffer& command, ImageId id, vk::Format for
+ 		attachment.storeOp     = vk::AttachmentStoreOp::eStore;
+ 		attachment.clearValue  = clear;
+ 		vk::RenderingInfo rendering {};
+-		rendering.renderArea.extent = {
++		rendering.renderArea.extent = vk::Extent2D {
+ 		    std::max(image.info.extent.width >> range.baseMipLevel, 1u),
+ 		    std::max(image.info.extent.height >> range.baseMipLevel, 1u)};
+ 		rendering.layerCount           = range.layerCount;
+diff --git a/src/graphics/host_gpu/renderer/colorRenderTarget.cpp b/src/graphics/host_gpu/renderer/colorRenderTarget.cpp
+index 27354e6..4197a97 100644
+--- a/src/graphics/host_gpu/renderer/colorRenderTarget.cpp
++++ b/src/graphics/host_gpu/renderer/colorRenderTarget.cpp
+@@ -266,7 +266,7 @@ void RenderExecutor::ResolveRenderColorTarget(CommandBuffer& buffer, RenderColor
+ 	desc.info.pixel_format = target_format.format;
+ 	desc.info.guest_format = transfer_format;
+ 	desc.info.type         = image_type;
+-	desc.info.extent       = {width, height, depth};
++	desc.info.extent       = vk::Extent3D {width, height, depth};
+ 	desc.info.resources    = {levels, volume ? 1u : view.image_layers};
+ 	desc.info.pitch        = pitch;
+ 	desc.info.bytes_per_block = bytes_per_element;
+diff --git a/src/graphics/host_gpu/renderer/context.cpp b/src/graphics/host_gpu/renderer/context.cpp
+index d71929f..27da74b 100644
+--- a/src/graphics/host_gpu/renderer/context.cpp
++++ b/src/graphics/host_gpu/renderer/context.cpp
+@@ -97,7 +97,7 @@ void CommandBuffer::BeginRendering(const RenderState& state) const {
+ 	stencil.clearValue.depthStencil.stencil = depth_stencil.clear_value[1];
+ 
+ 	vk::RenderingInfo rendering {};
+-	rendering.renderArea.extent    = {state.width, state.height};
++	rendering.renderArea.extent    = vk::Extent2D {state.width, state.height};
+ 	rendering.layerCount           = state.num_layers;
+ 	rendering.colorAttachmentCount = state.num_color_attachments;
+ 	rendering.pColorAttachments    = colors.data();
+diff --git a/src/graphics/host_gpu/renderer/depthRenderTarget.cpp b/src/graphics/host_gpu/renderer/depthRenderTarget.cpp
+index 507da9b..a93c60a 100644
+--- a/src/graphics/host_gpu/renderer/depthRenderTarget.cpp
++++ b/src/graphics/host_gpu/renderer/depthRenderTarget.cpp
+@@ -234,7 +234,7 @@ static TextureCache::ImageDesc MakeDepthTargetDesc(const CommandBuffer& buffer,
+ 	desc.info.pixel_format    = format;
+ 	desc.info.guest_format    = guest_format;
+ 	desc.info.type            = Prospero::ImageType::kColor2D;
+-	desc.info.extent          = {width, height, 1};
++	desc.info.extent          = vk::Extent3D {width, height, 1};
+ 	desc.info.resources       = {1, view.image_layers};
+ 	desc.info.pitch           = pitch;
+ 	desc.info.bytes_per_block = bytes;
+diff --git a/src/graphics/host_gpu/renderer/image/blitHelper.cpp b/src/graphics/host_gpu/renderer/image/blitHelper.cpp
+index f5dbf2c..78ffab0 100644
+--- a/src/graphics/host_gpu/renderer/image/blitHelper.cpp
++++ b/src/graphics/host_gpu/renderer/image/blitHelper.cpp
+@@ -160,10 +160,11 @@ void BlitHelper::ReinterpretColorAsMsDepth(Image& source, Image& destination) {
+ 	depth_attachment.imageLayout             = ColorToMsDepthLayout;
+ 	depth_attachment.loadOp                  = vk::AttachmentLoadOp::eClear;
+ 	depth_attachment.storeOp                 = vk::AttachmentStoreOp::eStore;
+-	depth_attachment.clearValue.depthStencil = {0.0f, 0};
++	depth_attachment.clearValue.depthStencil = vk::ClearDepthStencilValue {0.0f, 0};
+ 
+ 	vk::RenderingInfo rendering {};
+-	rendering.renderArea.extent = {destination_info.extent.width, destination_info.extent.height};
++	rendering.renderArea.extent =
++	    vk::Extent2D {destination_info.extent.width, destination_info.extent.height};
+ 	rendering.layerCount        = 1;
+ 	rendering.pDepthAttachment  = &depth_attachment;
+ 	command.beginRendering(&rendering);
+diff --git a/src/graphics/host_gpu/renderer/image/image.cpp b/src/graphics/host_gpu/renderer/image/image.cpp
+index 77ecdb8..528a52e 100644
+--- a/src/graphics/host_gpu/renderer/image/image.cpp
++++ b/src/graphics/host_gpu/renderer/image/image.cpp
+@@ -359,18 +359,18 @@ void Image::CopyImage(Image& source) {
+ 		copy.dstSubresource = {destination_aspect, level, 0, 1};
+ 		if (source.backing.image_type == backing.image_type) {
+ 			if (source.backing.image_type == vk::ImageType::e3D) {
+-				copy.extent = {width, height, depth};
++				copy.extent = vk::Extent3D {width, height, depth};
+ 			} else {
+ 				copy.srcSubresource.layerCount = std::min(source_layers, destination_layers);
+ 				copy.dstSubresource.layerCount = copy.srcSubresource.layerCount;
+-				copy.extent                    = {width, height, 1};
++				copy.extent                    = vk::Extent3D {width, height, 1};
+ 			}
+ 		} else if (source.backing.image_type == vk::ImageType::e2D) {
+ 			copy.srcSubresource.layerCount = source_layers;
+-			copy.extent                    = {width, height, source_layers};
++			copy.extent                    = vk::Extent3D {width, height, source_layers};
+ 		} else {
+ 			copy.dstSubresource.layerCount = destination_layers;
+-			copy.extent                    = {width, height, destination_layers};
++			copy.extent                    = vk::Extent3D {width, height, destination_layers};
+ 		}
+ 		copies.push_back(copy);
+ 	}
+@@ -515,11 +515,11 @@ void Image::CopyImageWithBuffer(Image& source, Buffer& buffer) {
+ 				source_copy.imageSubresource = {
+ 				    source_aspect, level,
+ 				    source.backing.image_type == vk::ImageType::e3D ? 0u : slice, 1};
+-				source_copy.imageOffset           = {0, static_cast<int32_t>(y),
++				source_copy.imageOffset           = vk::Offset3D {0, static_cast<int32_t>(y),
+ 				                                     source.backing.image_type == vk::ImageType::e3D
+ 				                                         ? static_cast<int32_t>(slice)
+ 				                                         : 0};
+-				source_copy.imageExtent           = {width, copy_height, 1};
++				source_copy.imageExtent           = vk::Extent3D {width, copy_height, 1};
+ 				auto destination_copy             = source_copy;
+ 				destination_copy.imageSubresource = {
+ 				    destination_aspect, level,
+@@ -566,7 +566,7 @@ void Image::CopyMip(Image& source, uint32_t mip, uint32_t layer) {
+ 		auto& copy          = copies[copy_count++];
+ 		copy.srcSubresource = {aspect, 0, 0, source_layers};
+ 		copy.dstSubresource = {aspect, mip, layer, destination_layers};
+-		copy.extent         = {width, height, depth};
++		copy.extent         = vk::Extent3D {width, height, depth};
+ 	}
+ 	auto command = m_scheduler.Current().Handle();
+ 	Transit(vk::ImageLayout::eTransferDstOptimal, vk::AccessFlagBits2::eTransferWrite, {}, command);
+diff --git a/src/graphics/host_gpu/renderer/image/textureCommon.cpp b/src/graphics/host_gpu/renderer/image/textureCommon.cpp
+index 85f3a91..72e806b 100644
+--- a/src/graphics/host_gpu/renderer/image/textureCommon.cpp
++++ b/src/graphics/host_gpu/renderer/image/textureCommon.cpp
+@@ -256,7 +256,7 @@ std::vector<vk::BufferImageCopy> TextureBuildImageCopies(const TextureUploadLayo
+ 		const auto          mip_depth = GetTextureLevelDepth(depth, mip_level, volume_texture);
+ 		vk::BufferImageCopy region {};
+ 		region.imageSubresource = {vk::ImageAspectFlagBits::eColor, mip_level, 0, 1};
+-		region.imageExtent      = {mip_width, mip_height, 1};
++		region.imageExtent      = vk::Extent3D {mip_width, mip_height, 1};
+ 		if (linear_texture) {
+ 			region.bufferRowLength   = layout.mips[mip_level].row_length;
+ 			region.bufferImageHeight = layout.mips[mip_level].image_height;
+diff --git a/src/graphics/host_gpu/renderer/pipeline/descriptors.cpp b/src/graphics/host_gpu/renderer/pipeline/descriptors.cpp
+index eaadfd9..671d4ac 100644
+--- a/src/graphics/host_gpu/renderer/pipeline/descriptors.cpp
++++ b/src/graphics/host_gpu/renderer/pipeline/descriptors.cpp
+@@ -363,7 +363,7 @@ static TextureCache::ImageDesc NullTextureDesc(const ShaderRecompiler::IR::Image
+ 	}
+ 	desc.info.pixel_format    = VulkanFormat(desc.info.guest_format);
+ 	desc.info.type            = Prospero::ImageType::kColor2D;
+-	desc.info.extent          = {1, 1, 1};
++	desc.info.extent          = vk::Extent3D {1, 1, 1};
+ 	desc.info.resources       = {1, 1};
+ 	desc.info.bytes_per_block = 4;
+ 	desc.info.samples         = 1;
+@@ -663,7 +663,7 @@ TextureBinding RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageR
+ 	desc.info.pixel_format = pixel_format;
+ 	desc.info.guest_format = format;
+ 	desc.info.type         = TextureBaseType(type);
+-	desc.info.extent       = {width, height, volume ? depth : 1u};
++	desc.info.extent       = vk::Extent3D {width, height, volume ? depth : 1u};
+ 	desc.info.resources    = {levels, image_layers};
+ 	desc.info.pitch        = pitch;
+ 	desc.info.bytes_per_block =
+@@ -770,9 +770,9 @@ void RenderExecutor::PrepareBindings(const ShaderStageRuntime& runtime,
+ 	const auto& program  = *runtime.program;
+ 	const auto& snapshot = *runtime.resources;
+ 	prepared.runtime = &runtime;
+-	prepared.gds = {nullptr, 0, VK_WHOLE_SIZE};
+-	prepared.flattened_srt = {};
+-	prepared.shader_data_buffer = {};
++	prepared.gds                = vk::DescriptorBufferInfo {nullptr, 0, VK_WHOLE_SIZE};
++	prepared.flattened_srt      = vk::DescriptorBufferInfo {};
++	prepared.shader_data_buffer = vk::DescriptorBufferInfo {};
+ 	prepared.buffer_sources.clear();
+ 	prepared.buffers.clear();
+ 	prepared.images.resize(program.info.images.size());
+diff --git a/src/graphics/host_gpu/renderer/renderDraw.cpp b/src/graphics/host_gpu/renderer/renderDraw.cpp
+index 4b39325..2687af0 100644
+--- a/src/graphics/host_gpu/renderer/renderDraw.cpp
++++ b/src/graphics/host_gpu/renderer/renderDraw.cpp
+@@ -349,13 +349,14 @@ static void SetGraphicsDynamicParams(const CommandBuffer& buffer, vk::CommandBuf
+ 		const auto final_scissor =
+ 		    calc_final_scissor(vp, ctx.GetScanModeControl(), framebuffer_extent, i);
+ 		auto& scissor  = scissors[i];
+-		scissor.offset = {final_scissor.left, final_scissor.top};
+-		scissor.extent = {static_cast<uint32_t>(final_scissor.right - final_scissor.left),
+-		                  static_cast<uint32_t>(final_scissor.bottom - final_scissor.top)};
++		scissor.offset = vk::Offset2D {final_scissor.left, final_scissor.top};
++		scissor.extent = vk::Extent2D {
++		    static_cast<uint32_t>(final_scissor.right - final_scissor.left),
++		    static_cast<uint32_t>(final_scissor.bottom - final_scissor.top)};
+ 		if (viewport.width == 0.0f) {
+ 			// Keep empty slots at their guest index; Vulkan requires a positive viewport width.
+ 			viewport.width = 1.0f;
+-			scissor.extent = {0, 0};
++			scissor.extent = vk::Extent2D {0, 0};
+ 		}
+ 	}
+ 	vk_buffer.setViewportWithCount(viewport_count, viewports.data());
+diff --git a/src/graphics/presentation/videoOut.cpp b/src/graphics/presentation/videoOut.cpp
+index 5105233..c5696e3 100644
+--- a/src/graphics/presentation/videoOut.cpp
++++ b/src/graphics/presentation/videoOut.cpp
+@@ -581,7 +581,7 @@ Graphics::ImageInfo BufferAttributeGroup::ImageInfo(const VideoOutBuffer& buffer
+ 	info.pixel_format    = pixel_format.format;
+ 	info.guest_format    = pixel_format.guest_format;
+ 	info.type            = Graphics::Prospero::ImageType::kColor2D;
+-	info.extent          = {attribute.width, attribute.height, 1};
++	info.extent          = vk::Extent3D {attribute.width, attribute.height, 1};
+ 	info.resources       = {1, 1};
+ 	info.pitch           = pitch;
+ 	info.bytes_per_block = pixel_format.bytes_per_element;
+diff --git a/src/graphics/presentation/window/swapchain.cpp b/src/graphics/presentation/window/swapchain.cpp
+index 7bce6b3..6e85383 100644
+--- a/src/graphics/presentation/window/swapchain.cpp
++++ b/src/graphics/presentation/window/swapchain.cpp
+@@ -177,7 +177,7 @@ void Presenter::Frame::Configure(GraphicContext& graphics, vk::Extent2D extent,
+ 	vk::ImageCreateInfo create {};
+ 	create.sType         = vk::StructureType::eImageCreateInfo;
+ 	create.imageType     = vk::ImageType::e2D;
+-	create.extent        = {extent.width, extent.height, 1};
++	create.extent        = vk::Extent3D {extent.width, extent.height, 1};
+ 	create.mipLevels     = 1;
+ 	create.arrayLayers   = 1;
+ 	create.format        = format;
+@@ -237,7 +237,7 @@ void Presenter::Frame::CopyFrom(CommandBuffer& command_buffer, Image& source) {
+ 	vk::ImageCopy copy {};
+ 	copy.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, source.backing.layers};
+ 	copy.dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, image.layers};
+-	copy.extent         = {std::min(source.backing.extent.width, image.extent.width),
++	copy.extent         = vk::Extent3D {std::min(source.backing.extent.width, image.extent.width),
+ 	                       std::min(source.backing.extent.height, image.extent.height), 1};
+ 	EXIT_IF(copy.srcSubresource.layerCount != copy.dstSubresource.layerCount);
+ 	command.copyImage(source.backing.image, vk::ImageLayout::eTransferSrcOptimal, image.image,
+@@ -355,7 +355,7 @@ void Swapchain::Create() {
+ 	// during creation, the next presentation will detect the newer size.
+ 	{
+ 		Common::LockGuard lock(m_window.mutex);
+-		m_window_extent = {graphics.screen_width, graphics.screen_height};
++		m_window_extent = vk::Extent2D {graphics.screen_width, graphics.screen_height};
+ 	}
+ 	EXIT_IF(m_window_extent.width == 0);
+ 	EXIT_IF(m_window_extent.height == 0);
+@@ -450,7 +450,7 @@ void Swapchain::Create() {
+ 		view.image                           = m_images[i];
+ 		view.viewType                        = vk::ImageViewType::e2D;
+ 		view.format                          = m_format;
+-		view.components                      = {};
++		view.components                      = vk::ComponentMapping {};
+ 		view.subresourceRange.aspectMask     = vk::ImageAspectFlagBits::eColor;
+ 		view.subresourceRange.baseArrayLayer = 0;
+ 		view.subresourceRange.baseMipLevel   = 0;
+@@ -525,8 +525,8 @@ void Swapchain::Destroy() {
+ 
+ 	m_handle        = nullptr;
+ 	m_format        = vk::Format::eUndefined;
+-	m_extent        = {};
+-	m_window_extent = {};
++	m_extent        = vk::Extent2D {};
++	m_window_extent = vk::Extent2D {};
+ 	m_image_index   = static_cast<uint32_t>(-1);
+ 	m_frame_index   = 0;
+ 	m_images.clear();

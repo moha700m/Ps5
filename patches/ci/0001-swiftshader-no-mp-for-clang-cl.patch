@@ -1,0 +1,10 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -413,3 +413,5 @@
+ if(MSVC)
+-    set_cpp_flag("/MP")
++    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++        set_cpp_flag("/MP")
++    endif()
+     add_definitions(-D_CRT_SECURE_NO_WARNINGS)

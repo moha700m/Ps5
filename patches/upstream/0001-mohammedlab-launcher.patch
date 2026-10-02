@@ -1,0 +1,1175 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f25a9a7..ca35494 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -579,6 +579,19 @@ if(NOT KYTY_CLANG_CL)
+ endif()
+ 
+ if(BUILD_TESTING)
++	if(KYTY_BUILD_LAUNCHER)
++		find_package(Qt6 COMPONENTS Core Widgets REQUIRED)
++		add_executable(launcher_policy_tests
++			"${KYTY_TESTS_DIR}/LauncherPolicyTests.cpp"
++			"${KYTY_SOURCE_DIR}/launcher/src/hardwareDiagnostics.cpp"
++			"${KYTY_SOURCE_DIR}/launcher/src/launcherLanguage.cpp"
++		)
++		target_link_libraries(launcher_policy_tests PRIVATE Qt6::Widgets Vulkan::Headers)
++		target_include_directories(launcher_policy_tests PRIVATE
++			"${KYTY_SOURCE_DIR}/launcher/include")
++		add_test(NAME launcher_policy COMMAND $<TARGET_FILE:launcher_policy_tests>)
++	endif()
++
+ 	add_test(NAME emulator_user_name_cli
+ 	         COMMAND $<TARGET_FILE:kyty_emulator> --help --user-name 1234567890123456)
+ 	add_test(NAME emulator_user_name_too_long
+@@ -690,6 +703,9 @@ if(BUILD_TESTING)
+ 		save_data_dialog_tests
+ 		http_uri_parse_tests
+ 	)
++	if(KYTY_BUILD_LAUNCHER)
++		add_dependencies(kyty_tests launcher_policy_tests)
++	endif()
+ endif()
+ 
+ # Test Darwin signal-context restoration for SSE4a instructions.
+diff --git a/src/launcher/forms/main_dialog.ui b/src/launcher/forms/main_dialog.ui
+index 94f5025..09b3218 100644
+--- a/src/launcher/forms/main_dialog.ui
++++ b/src/launcher/forms/main_dialog.ui
+@@ -6,8 +6,8 @@
+    <rect>
+     <x>0</x>
+     <y>0</y>
+-    <width>428</width>
+-    <height>454</height>
++    <width>760</width>
++    <height>500</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+@@ -17,7 +17,7 @@
+    </size>
+   </property>
+   <property name="windowTitle">
+-   <string>KytyPS5 Launcher</string>
++   <string>MohammedLab PS5</string>
+   </property>
+   <property name="locale">
+    <locale language="English" country="UnitedStates"/>
+@@ -51,6 +51,58 @@
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_4">
++       <item>
++        <layout class="QHBoxLayout" name="productActionsLayout">
++         <item>
++          <widget class="QLabel" name="language_label">
++           <property name="text">
++            <string>Language:</string>
++           </property>
++          </widget>
++         </item>
++         <item>
++          <widget class="QComboBox" name="language_selector">
++           <item>
++            <property name="text">
++             <string>English</string>
++            </property>
++            <property name="data">
++             <string>en</string>
++            </property>
++           </item>
++           <item>
++            <property name="text">
++             <string>العربية</string>
++            </property>
++            <property name="data">
++             <string>ar</string>
++            </property>
++           </item>
++          </widget>
++         </item>
++         <item>
++          <widget class="QPushButton" name="button_hardware">
++           <property name="text">
++            <string>Hardware diagnostics...</string>
++           </property>
++          </widget>
++         </item>
++         <item>
++          <widget class="QPushButton" name="button_controller">
++           <property name="text">
++            <string>Test controller...</string>
++           </property>
++          </widget>
++         </item>
++         <item>
++          <widget class="QPushButton" name="button_about">
++           <property name="text">
++            <string>About</string>
++           </property>
++          </widget>
++         </item>
++        </layout>
++       </item>
+        <item>
+         <widget class="QLabel" name="label_settings_file">
+          <property name="text">
+diff --git a/src/launcher/include/controllerTestDialog.h b/src/launcher/include/controllerTestDialog.h
+new file mode 100644
+index 0000000..5a07f0a
+--- /dev/null
++++ b/src/launcher/include/controllerTestDialog.h
+@@ -0,0 +1,28 @@
++#ifndef LAUNCHER_INCLUDE_CONTROLLER_TEST_DIALOG_H_
++#define LAUNCHER_INCLUDE_CONTROLLER_TEST_DIALOG_H_
++
++#include <QDialog>
++
++class QLabel;
++class QTimer;
++struct SDL_Gamepad;
++
++class ControllerTestDialog final: public QDialog {
++	Q_OBJECT
++
++public:
++	explicit ControllerTestDialog(QWidget* parent = nullptr);
++	~ControllerTestDialog() override;
++
++private:
++	void Refresh();
++	void CloseGamepad();
++
++	QLabel*     m_status = nullptr;
++	QLabel*     m_state  = nullptr;
++	QTimer*     m_timer  = nullptr;
++	SDL_Gamepad* m_gamepad = nullptr;
++	bool        m_sdl_initialized = false;
++};
++
++#endif
+diff --git a/src/launcher/include/hardwareDiagnostics.h b/src/launcher/include/hardwareDiagnostics.h
+new file mode 100644
+index 0000000..75edc05
+--- /dev/null
++++ b/src/launcher/include/hardwareDiagnostics.h
+@@ -0,0 +1,15 @@
++#ifndef LAUNCHER_INCLUDE_HARDWARE_DIAGNOSTICS_H_
++#define LAUNCHER_INCLUDE_HARDWARE_DIAGNOSTICS_H_
++
++#include "launcherLanguage.h"
++
++#include <QString>
++
++enum class RendererSupport { Supported, Unsupported, Unknown };
++
++RendererSupport ClassifyRendererSupport(bool has_device, bool api_supported,
++                                        bool required_features_supported,
++                                        bool surface_checked, bool surface_supported);
++QString CollectHardwareDiagnostics(LauncherLanguage language);
++
++#endif
+diff --git a/src/launcher/include/launcherLanguage.h b/src/launcher/include/launcherLanguage.h
+new file mode 100644
+index 0000000..5178358
+--- /dev/null
++++ b/src/launcher/include/launcherLanguage.h
+@@ -0,0 +1,18 @@
++#ifndef LAUNCHER_INCLUDE_LAUNCHER_LANGUAGE_H_
++#define LAUNCHER_INCLUDE_LAUNCHER_LANGUAGE_H_
++
++#include <QTranslator>
++#include <QString>
++
++class QApplication;
++
++enum class LauncherLanguage { English, Arabic };
++
++LauncherLanguage ReadLauncherLanguage(bool* configured = nullptr);
++void             WriteLauncherLanguage(LauncherLanguage language);
++bool             ReadFirstRunSetupCompleted();
++void             WriteFirstRunSetupCompleted();
++void             ApplyLauncherLanguage(QApplication& application, LauncherLanguage language);
++QString TranslateLauncherText(LauncherLanguage language, const char* context, const char* source);
++
++#endif
+diff --git a/src/launcher/include/mainDialog.h b/src/launcher/include/mainDialog.h
+index 53d4d91..2a60ec1 100644
+--- a/src/launcher/include/mainDialog.h
++++ b/src/launcher/include/mainDialog.h
+@@ -23,11 +23,13 @@ public:
+ 	~MainDialog() override = default;
+ 
+ 	void RunInterpreter(QProcess* process, const Configuration& info);
++	void RunFirstRunSetup();
+ 
+ 	static void WriteSettings(QSettings& s);
+ 	static void ReadSettings(QSettings& s);
+ 
+ 	void resizeEvent(QResizeEvent* event) override;
++	void changeEvent(QEvent* event) override;
+ 
+ private:
+ 	MainDialogPrivate* m_p = nullptr;
+diff --git a/src/launcher/src/configurationListWidget.cpp b/src/launcher/src/configurationListWidget.cpp
+index b8a1a56..d936330 100644
+--- a/src/launcher/src/configurationListWidget.cpp
++++ b/src/launcher/src/configurationListWidget.cpp
+@@ -263,6 +263,11 @@ ConfigurationListWidget::~ConfigurationListWidget() {
+ 
+ void ConfigurationListWidget::changeEvent(QEvent* event) {
+ 	QWidget::changeEvent(event);
++	if (event->type() == QEvent::LanguageChange) {
++		m_ui->retranslateUi(this);
++		m_ui->global_settings_button->setToolTip(tr("Edit global settings and game folders"));
++		m_ui->input_mapping_button->setToolTip(tr("Edit global input mapping"));
++	}
+ 	if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::PaletteChange) {
+ 		UpdateToolbarIcons();
+ 	}
+diff --git a/src/launcher/src/controllerTestDialog.cpp b/src/launcher/src/controllerTestDialog.cpp
+new file mode 100644
+index 0000000..7800765
+--- /dev/null
++++ b/src/launcher/src/controllerTestDialog.cpp
+@@ -0,0 +1,103 @@
++#include "controllerTestDialog.h"
++
++#include <SDL3/SDL.h>
++
++#include <QLabel>
++#include <QTimer>
++#include <QVBoxLayout>
++
++ControllerTestDialog::ControllerTestDialog(QWidget* parent): QDialog(parent) {
++	setWindowTitle(tr("Controller test"));
++	resize(480, 300);
++	auto* layout = new QVBoxLayout(this);
++	m_status = new QLabel(this);
++	m_status->setWordWrap(true);
++	m_state = new QLabel(this);
++	m_state->setTextInteractionFlags(Qt::TextSelectableByMouse);
++	layout->addWidget(m_status);
++	layout->addWidget(m_state);
++
++	m_sdl_initialized = SDL_InitSubSystem(SDL_INIT_GAMEPAD);
++	if (!m_sdl_initialized) {
++		m_status->setText(tr("SDL could not initialize gamepad input: %1")
++		                      .arg(QString::fromUtf8(SDL_GetError())));
++		return;
++	}
++	m_status->setText(tr("Connect a controller. Values below are live SDL gamepad events; "
++	                     "this screen does not verify in-game input or haptics."));
++	m_timer = new QTimer(this);
++	connect(m_timer, &QTimer::timeout, this, &ControllerTestDialog::Refresh);
++	m_timer->start(50);
++	Refresh();
++}
++
++ControllerTestDialog::~ControllerTestDialog() {
++	if (m_timer != nullptr) {
++		m_timer->stop();
++	}
++	CloseGamepad();
++	if (m_sdl_initialized) {
++		SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
++	}
++}
++
++void ControllerTestDialog::CloseGamepad() {
++	if (m_gamepad != nullptr) {
++		SDL_CloseGamepad(m_gamepad);
++		m_gamepad = nullptr;
++	}
++}
++
++void ControllerTestDialog::Refresh() {
++	SDL_PumpEvents();
++	if (m_gamepad != nullptr && !SDL_GamepadConnected(m_gamepad)) {
++		CloseGamepad();
++	}
++	if (m_gamepad == nullptr) {
++		int count = 0;
++		SDL_JoystickID* devices = SDL_GetGamepads(&count);
++		if (devices != nullptr && count > 0) {
++			m_gamepad = SDL_OpenGamepad(devices[0]);
++		}
++		SDL_free(devices);
++	}
++	if (m_gamepad == nullptr) {
++		m_status->setText(tr("No SDL gamepad detected. Connect a supported controller."));
++		m_state->clear();
++		return;
++	}
++
++	m_status->setText(tr("Connected: %1 (%2)")
++	                      .arg(QString::fromUtf8(SDL_GetGamepadName(m_gamepad)),
++	                           QString::fromUtf8(SDL_GetGamepadPath(m_gamepad)
++	                                                 ? SDL_GetGamepadPath(m_gamepad)
++	                                                 : "")));
++	QStringList values;
++	const auto add_axis = [this, &values](const char* name, SDL_GamepadAxis axis) {
++		values << QStringLiteral("%1: %2").arg(QString::fromLatin1(name))
++		                                    .arg(SDL_GetGamepadAxis(m_gamepad, axis));
++	};
++	add_axis("Left X", SDL_GAMEPAD_AXIS_LEFTX);
++	add_axis("Left Y", SDL_GAMEPAD_AXIS_LEFTY);
++	add_axis("Right X", SDL_GAMEPAD_AXIS_RIGHTX);
++	add_axis("Right Y", SDL_GAMEPAD_AXIS_RIGHTY);
++	add_axis("Left trigger", SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
++	add_axis("Right trigger", SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
++	const struct {
++		const char*     name;
++		SDL_GamepadButton button;
++	} buttons[] = {
++	    {"South", SDL_GAMEPAD_BUTTON_SOUTH}, {"East", SDL_GAMEPAD_BUTTON_EAST},
++	    {"West", SDL_GAMEPAD_BUTTON_WEST},   {"North", SDL_GAMEPAD_BUTTON_NORTH},
++	    {"Back", SDL_GAMEPAD_BUTTON_BACK},   {"Start", SDL_GAMEPAD_BUTTON_START},
++	    {"L1", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},
++	    {"R1", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
++	};
++	for (const auto& item: buttons) {
++		values << QStringLiteral("%1: %2")
++		              .arg(QString::fromLatin1(item.name),
++		                   SDL_GetGamepadButton(m_gamepad, item.button) ? tr("pressed")
++		                                                               : tr("released"));
++	}
++	m_state->setText(values.join(QStringLiteral("\n")));
++}
+diff --git a/src/launcher/src/hardwareDiagnostics.cpp b/src/launcher/src/hardwareDiagnostics.cpp
+new file mode 100644
+index 0000000..612dd56
+--- /dev/null
++++ b/src/launcher/src/hardwareDiagnostics.cpp
+@@ -0,0 +1,279 @@
++#include "hardwareDiagnostics.h"
++
++#include <vulkan/vulkan.h>
++
++#include <QCoreApplication>
++#include <QLibrary>
++#include <QSysInfo>
++#include <QStorageInfo>
++#include <QStringList>
++
++#if defined(_WIN32)
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <vector>
++
++RendererSupport ClassifyRendererSupport(bool has_device, bool api_supported,
++                                        bool required_features_supported,
++                                        bool surface_checked, bool surface_supported) {
++	if (!has_device) {
++		return RendererSupport::Unknown;
++	}
++	if (!api_supported || !required_features_supported ||
++	    (surface_checked && !surface_supported)) {
++		return RendererSupport::Unsupported;
++	}
++	if (!surface_checked) {
++		return RendererSupport::Unknown;
++	}
++	return RendererSupport::Supported;
++}
++
++namespace {
++
++QString Label(LauncherLanguage language, const char* english, const char* arabic) {
++	return language == LauncherLanguage::Arabic ? QString::fromUtf8(arabic)
++	                                            : QString::fromUtf8(english);
++}
++
++QString VulkanVersion(uint32_t version) {
++	return QStringLiteral("%1.%2.%3")
++	    .arg(VK_VERSION_MAJOR(version))
++	    .arg(VK_VERSION_MINOR(version))
++	    .arg(VK_VERSION_PATCH(version));
++}
++
++} // namespace
++
++QString CollectHardwareDiagnostics(LauncherLanguage language) {
++	QStringList lines;
++	lines << Label(language, "Operating system: ", "نظام التشغيل: ") +
++	             QSysInfo::prettyProductName();
++	lines << Label(language, "Architecture: ", "المعمارية: ") +
++	             QSysInfo::currentCpuArchitecture();
++#if defined(_WIN32)
++	MEMORYSTATUSEX memory {};
++	memory.dwLength = sizeof(memory);
++	if (GlobalMemoryStatusEx(&memory)) {
++		lines << Label(language, "Physical RAM: ", "الذاكرة الفعلية: ") +
++		             QString::number(memory.ullTotalPhys / (1024 * 1024)) + QStringLiteral(" MiB");
++	}
++#endif
++	const QStorageInfo storage(QCoreApplication::applicationDirPath());
++	if (storage.isValid() && storage.isReady()) {
++		lines << Label(language, "Free storage beside the launcher: ",
++		               "المساحة المتاحة بجانب المشغّل: ") +
++		             QString::number(storage.bytesAvailable() / (1024 * 1024)) +
++		             QStringLiteral(" MiB");
++	}
++
++#if defined(_WIN32)
++	QLibrary vulkan(QStringLiteral("vulkan-1"));
++#elif defined(__APPLE__)
++	QLibrary vulkan(QStringLiteral("vulkan"));
++#else
++	QLibrary vulkan(QStringLiteral("vulkan"));
++#endif
++	if (!vulkan.load()) {
++		lines << Label(language,
++		               "Vulkan loader: unavailable; GPU compatibility is unknown. Install or update "
++		               "a vendor Vulkan driver, then retry.",
++		               "مشغّل Vulkan: غير متاح؛ توافق بطاقة الرسومات غير معروف. ثبّت أو حدّث "
++		               "تعريف Vulkan من الشركة المصنّعة ثم أعد المحاولة.");
++		return lines.join(QLatin1Char('\n'));
++	}
++
++	auto get_instance_proc_addr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
++	    vulkan.resolve("vkGetInstanceProcAddr"));
++	auto create_instance = reinterpret_cast<PFN_vkCreateInstance>(
++	    vulkan.resolve("vkCreateInstance"));
++	if (get_instance_proc_addr == nullptr || create_instance == nullptr) {
++		lines << Label(language, "Vulkan loader is incomplete; device status is unknown.",
++		               "مشغّل Vulkan غير مكتمل؛ حالة الجهاز غير معروفة.");
++		return lines.join(QLatin1Char('\n'));
++	}
++
++	uint32_t loader_version = VK_API_VERSION_1_0;
++	auto enumerate_instance_version = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
++	    vulkan.resolve("vkEnumerateInstanceVersion"));
++	if (enumerate_instance_version != nullptr &&
++	    enumerate_instance_version(&loader_version) != VK_SUCCESS) {
++		loader_version = VK_API_VERSION_1_0;
++	}
++	lines << Label(language, "Vulkan loader version: ", "إصدار مشغّل Vulkan: ") +
++	             VulkanVersion(loader_version);
++
++	VkApplicationInfo application {};
++	application.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
++	application.pApplicationName   = "MohammedLab PS5 diagnostics";
++	application.apiVersion         = std::min(loader_version, VK_API_VERSION_1_3);
++	VkInstanceCreateInfo instance_info {};
++	instance_info.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
++	instance_info.pApplicationInfo = &application;
++	VkInstance instance = VK_NULL_HANDLE;
++	if (create_instance(&instance_info, nullptr, &instance) != VK_SUCCESS) {
++		lines << Label(language, "Vulkan instance creation failed; device status is unknown.",
++		               "تعذر إنشاء مثيل Vulkan؛ حالة الجهاز غير معروفة.");
++		return lines.join(QLatin1Char('\n'));
++	}
++
++	auto destroy_instance = reinterpret_cast<PFN_vkDestroyInstance>(
++	    get_instance_proc_addr(instance, "vkDestroyInstance"));
++	auto enumerate_devices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
++	    get_instance_proc_addr(instance, "vkEnumeratePhysicalDevices"));
++	auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
++	    get_instance_proc_addr(instance, "vkGetPhysicalDeviceProperties"));
++	auto get_features = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
++	    get_instance_proc_addr(instance, "vkGetPhysicalDeviceFeatures2"));
++	auto enumerate_extensions = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(
++	    get_instance_proc_addr(instance, "vkEnumerateDeviceExtensionProperties"));
++	if (destroy_instance == nullptr || enumerate_devices == nullptr || get_properties == nullptr ||
++	    get_features == nullptr || enumerate_extensions == nullptr) {
++		if (destroy_instance != nullptr) {
++			destroy_instance(instance, nullptr);
++		}
++		lines << Label(language, "Vulkan device query functions are unavailable; status is unknown.",
++		               "وظائف فحص أجهزة Vulkan غير متاحة؛ الحالة غير معروفة.");
++		return lines.join(QLatin1Char('\n'));
++	}
++
++	uint32_t device_count = 0;
++	if (enumerate_devices(instance, &device_count, nullptr) != VK_SUCCESS || device_count == 0) {
++		destroy_instance(instance, nullptr);
++		lines << Label(language, "No Vulkan physical device was enumerated.",
++		               "لم يتم العثور على جهاز Vulkan فعلي.");
++		lines << Label(language,
++		               "Renderer status: unknown; no device was enumerated, so GPU absence and "
++		               "driver/runtime availability cannot be distinguished here.",
++		               "حالة العرض: غير معروفة؛ لم يظهر جهاز، ولا يمكن التمييز هنا بين غياب "
++		               "البطاقة وغياب التعريف أو بيئة التشغيل.");
++		return lines.join(QLatin1Char('\n'));
++	}
++	std::vector<VkPhysicalDevice> devices(device_count);
++	if (enumerate_devices(instance, &device_count, devices.data()) != VK_SUCCESS) {
++		destroy_instance(instance, nullptr);
++		lines << Label(language, "Vulkan device enumeration failed; status is unknown.",
++		               "فشل تعداد أجهزة Vulkan؛ الحالة غير معروفة.");
++		return lines.join(QLatin1Char('\n'));
++	}
++
++	const std::array<const char*, 8> required_extensions {
++	    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
++	    VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME,
++	    VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME,
++	    VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
++	    "VK_KHR_maintenance1",
++	    VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME,
++	    VK_EXT_COLOR_WRITE_ENABLE_EXTENSION_NAME,
++	    VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
++	};
++
++	for (uint32_t index = 0; index < device_count; ++index) {
++		VkPhysicalDeviceProperties properties {};
++		get_properties(devices[index], &properties);
++		lines << QStringLiteral("GPU %1: %2")
++		              .arg(index)
++		              .arg(QString::fromUtf8(properties.deviceName));
++		lines << Label(language, "  Vulkan API: ", "  واجهة Vulkan: ") +
++		             VulkanVersion(properties.apiVersion);
++		lines << Label(language, "  Driver version (raw): ", "  إصدار التعريف (خام): ") +
++		             QString::number(properties.driverVersion);
++
++		VkPhysicalDeviceVulkan12Features features12 {};
++		features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++		VkPhysicalDeviceVulkan13Features features13 {};
++		features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
++		features12.pNext = &features13;
++		VkPhysicalDeviceDepthClipControlFeaturesEXT depth_clip_control {};
++		depth_clip_control.sType =
++		    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT;
++		VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod {};
++		image_view_min_lod.sType =
++		    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_MIN_LOD_FEATURES_EXT;
++		VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_enable {};
++		depth_clip_enable.sType =
++		    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
++		VkPhysicalDeviceColorWriteEnableFeaturesEXT color_write_enable {};
++		color_write_enable.sType =
++		    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COLOR_WRITE_ENABLE_FEATURES_EXT;
++		VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric {};
++		barycentric.sType =
++		    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
++		features13.pNext         = &depth_clip_control;
++		depth_clip_control.pNext = &image_view_min_lod;
++		image_view_min_lod.pNext = &depth_clip_enable;
++		depth_clip_enable.pNext  = &color_write_enable;
++		color_write_enable.pNext = &barycentric;
++		VkPhysicalDeviceFeatures2 features {};
++		features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
++		features.pNext = &features12;
++		const bool api_ok = properties.apiVersion >= VK_API_VERSION_1_3;
++		if (api_ok) {
++			get_features(devices[index], &features);
++		}
++		const bool feature_ok =
++		    features.features.depthClamp && features.features.sampleRateShading &&
++		    features.features.depthBiasClamp && features.features.shaderClipDistance &&
++		    features.features.shaderCullDistance && features.features.largePoints &&
++		    features.features.multiViewport && features.features.fillModeNonSolid &&
++		    features.features.fragmentStoresAndAtomics && features.features.samplerAnisotropy &&
++		    features.features.robustBufferAccess && features.features.depthBounds &&
++		    features.features.shaderStorageImageWriteWithoutFormat &&
++		    features.features.shaderImageGatherExtended && features.features.independentBlend &&
++		    features.features.tessellationShader && features12.samplerMirrorClampToEdge &&
++		    features12.timelineSemaphore && features12.shaderOutputLayer &&
++		    features12.shaderOutputViewportIndex && features12.bufferDeviceAddress &&
++		    features12.shaderBufferInt64Atomics && features13.robustImageAccess &&
++		    features13.dynamicRendering && features13.synchronization2 &&
++		    depth_clip_control.depthClipControl && image_view_min_lod.minLod &&
++		    depth_clip_enable.depthClipEnable && color_write_enable.colorWriteEnable &&
++		    barycentric.fragmentShaderBarycentric;
++		uint32_t extension_count = 0;
++		enumerate_extensions(devices[index], nullptr, &extension_count, nullptr);
++		std::vector<VkExtensionProperties> extensions(extension_count);
++		enumerate_extensions(devices[index], nullptr, &extension_count, extensions.data());
++		bool extensions_ok = true;
++		for (const auto* required: required_extensions) {
++			const bool found = std::any_of(extensions.begin(), extensions.end(),
++			                               [required](const auto& extension) {
++				                               return strcmp(extension.extensionName, required) == 0;
++			                               });
++			if (!found) {
++				extensions_ok = false;
++				lines << Label(language, "  Missing required extension: ",
++				               "  الامتداد المطلوب غير متوفر: ") +
++				             QString::fromLatin1(required);
++			}
++		}
++		const bool requirements_ok = api_ok && feature_ok && extensions_ok;
++		if (!api_ok) {
++			lines << Label(language, "  Vulkan 1.3 is required by the renderer.",
++			               "  يتطلب محرك العرض Vulkan 1.3.");
++		}
++		if (!feature_ok) {
++			lines << Label(language, "  One or more required Vulkan features are unavailable.",
++			               "  ميزة أو أكثر من ميزات Vulkan المطلوبة غير متاحة.");
++		}
++		const auto status = ClassifyRendererSupport(true, api_ok, feature_ok && extensions_ok,
++		                                           false, false);
++		lines << Label(language, "  Baseline capability status: ",
++		               "  حالة الإمكانات الأساسية: ") +
++		             (status == RendererSupport::Unsupported
++		                  ? Label(language, "unsupported", "غير مدعوم")
++		                  : Label(language, "unknown; presentation/format checks remain",
++		                          "غير معروف؛ لم تُفحص إمكانات العرض والتنسيقات"));
++		if (requirements_ok) {
++			lines << Label(language, "  Required API/features/extensions found.",
++			               "  وُجدت الواجهة والميزات والامتدادات المطلوبة.");
++		}
++	}
++	destroy_instance(instance, nullptr);
++	return lines.join(QLatin1Char('\n'));
++}
+diff --git a/src/launcher/src/launcherLanguage.cpp b/src/launcher/src/launcherLanguage.cpp
+new file mode 100644
+index 0000000..294b67f
+--- /dev/null
++++ b/src/launcher/src/launcherLanguage.cpp
+@@ -0,0 +1,223 @@
++#include "launcherLanguage.h"
++
++#include <QApplication>
++#include <QDir>
++#include <QFile>
++#include <QHash>
++#include <QLocale>
++#include <QSettings>
++#include <QString>
++
++#include <memory>
++
++namespace {
++
++constexpr char SETTINGS_FILE[]  = "Kyty.ini";
++constexpr char SETTINGS_ORG[]   = "Kyty";
++constexpr char SETTINGS_APP[]   = "Kyty";
++constexpr char SETTINGS_GROUP[] = "MainDialog";
++constexpr char SETTINGS_KEY[]   = "interface_language";
++constexpr char FIRST_RUN_KEY[]  = "first_run_setup_completed";
++
++QString TranslationKey(const char* context, const char* source) {
++	return QString::fromUtf8(context) + QChar(0x1f) + QString::fromUtf8(source);
++}
++
++const QHash<QString, QString>& ArabicTranslations() {
++	static const QHash<QString, QString> translations {
++	    {TranslationKey("MainDialog", "MohammedLab PS5"), QString::fromUtf8("MohammedLab PS5")},
++	    {TranslationKey("MainDialogPrivate", "Settings file: "),
++	     QString::fromUtf8("ملف الإعدادات: ")},
++	    {TranslationKey("MainDialogPrivate", "Emulator: "), QString::fromUtf8("المحاكي: ")},
++	    {TranslationKey("MainDialogPrivate", "Version: "), QString::fromUtf8("الإصدار: ")},
++	    {TranslationKey("MainDialogPrivate", "About MohammedLab PS5"),
++	     QString::fromUtf8("حول MohammedLab PS5")},
++	    {TranslationKey("MainDialogPrivate", "MohammedLab PS5 is based on KytyPS5."),
++	     QString::fromUtf8("يعتمد MohammedLab PS5 على مشروع KytyPS5.")},
++	    {TranslationKey("MainDialogPrivate", "Hardware diagnostics"),
++	     QString::fromUtf8("تشخيص الأجهزة")},
++	    {TranslationKey("MainDialogPrivate", "First-run setup"),
++	     QString::fromUtf8("إعداد التشغيل الأول")},
++	    {TranslationKey("MainDialogPrivate", "Inspect this PC's hardware and Vulkan driver now?"),
++	     QString::fromUtf8("هل تريد فحص أجهزة هذا الحاسوب وتعريف Vulkan الآن؟")},
++	    {TranslationKey("MainDialogPrivate", "Add a game folder now? The existing launcher will scan for supported game files."),
++	     QString::fromUtf8("هل تريد إضافة مجلد ألعاب الآن؟ سيفحص المشغّل الملفات المدعومة الموجودة.")},
++	    {TranslationKey("MainDialogPrivate", "Test a connected SDL gamepad now? This checks live controls only, not in-game input."),
++	     QString::fromUtf8("هل تريد اختبار وحدة تحكم SDL متصلة الآن؟ يفحص هذا الأزرار الحية فقط، وليس الإدخال داخل اللعبة.")},
++	    {TranslationKey("ControllerTestDialog", "Controller test"),
++	     QString::fromUtf8("اختبار وحدة التحكم")},
++	    {TranslationKey("MainDialog", "Language:"), QString::fromUtf8("اللغة:")},
++	    {TranslationKey("MainDialog", "Hardware diagnostics..."),
++	     QString::fromUtf8("تشخيص الأجهزة...")},
++	    {TranslationKey("MainDialog", "Test controller..."),
++	     QString::fromUtf8("اختبار وحدة التحكم...")},
++	    {TranslationKey("MainDialog", "About"), QString::fromUtf8("حول")},
++	    {TranslationKey("MainDialog", "Check for updates"),
++	     QString::fromUtf8("التحقق من التحديثات")},
++	    {TranslationKey("MainDialog", "Check for updates on startup"),
++	     QString::fromUtf8("التحقق من التحديثات عند التشغيل")},
++	    {TranslationKey("MainDialog", "Settings file: "), QString::fromUtf8("ملف الإعدادات: ")},
++	    {TranslationKey("MainDialog", "Emulator: "), QString::fromUtf8("المحاكي: ")},
++	    {TranslationKey("MainDialog", "Version: "), QString::fromUtf8("الإصدار: ")},
++	    {TranslationKey("MainDialogPrivate", "Error"), QString::fromUtf8("خطأ")},
++	    {TranslationKey("MainDialogPrivate", "Can't find emulator"),
++	     QString::fromUtf8("تعذر العثور على المحاكي")},
++	    {TranslationKey("MainDialogPrivate", "Invalid emulator configuration"),
++	     QString::fromUtf8("إعدادات المحاكي غير صالحة")},
++	    {TranslationKey("ConfigurationListWidget", "Run"),
++	     QString::fromUtf8("تشغيل")},
++	    {TranslationKey("ConfigurationListWidget", "Game name"),
++	     QString::fromUtf8("اسم اللعبة")},
++	    {TranslationKey("ConfigurationListWidget", "Title ID"),
++	     QString::fromUtf8("معرّف العنوان")},
++	    {TranslationKey("ConfigurationListWidget", "Version"),
++	     QString::fromUtf8("الإصدار")},
++	    {TranslationKey("ConfigurationListWidget", "Firmware"),
++	     QString::fromUtf8("البرنامج الثابت")},
++	    {TranslationKey("ConfigurationListWidget", "Size"),
++	     QString::fromUtf8("الحجم")},
++	    {TranslationKey("ConfigurationListWidget", "Path"),
++	     QString::fromUtf8("المسار")},
++	    {TranslationKey("ConfigurationListWidget", "Status"),
++	     QString::fromUtf8("الحالة")},
++	    {TranslationKey("ConfigurationListWidget", "Comment"),
++	     QString::fromUtf8("تعليق")},
++	    {TranslationKey("ConfigurationListWidget", "Edit global settings and game folders"),
++	     QString::fromUtf8("تعديل الإعدادات العامة ومجلدات الألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Edit global input mapping"),
++	     QString::fromUtf8("تعديل تعيينات الإدخال العامة")},
++	    {TranslationKey("ConfigurationListWidget", "Add game folder"),
++	     QString::fromUtf8("إضافة مجلد ألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Select game folder"),
++	     QString::fromUtf8("اختر مجلد الألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Open game folder"),
++	     QString::fromUtf8("فتح مجلد اللعبة")},
++	    {TranslationKey("ConfigurationListWidget", "Game folder does not exist."),
++	     QString::fromUtf8("مجلد اللعبة غير موجود.")},
++	    {TranslationKey("ConfigurationListWidget", "Could not open game folder."),
++	     QString::fromUtf8("تعذر فتح مجلد اللعبة.")},
++	    {TranslationKey("ConfigurationListWidget", "Edit game settings"),
++	     QString::fromUtf8("تعديل إعدادات اللعبة")},
++	    {TranslationKey("ConfigurationListWidget", "Configurations"),
++	     QString::fromUtf8("قائمة الألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Game"),
++	     QString::fromUtf8("اللعبة")},
++	    {TranslationKey("ConfigurationListWidget", "Serial"),
++	     QString::fromUtf8("المعرّف")},
++	    {TranslationKey("ConfigurationListWidget", "Game Version"),
++	     QString::fromUtf8("إصدار اللعبة")},
++	    {TranslationKey("ConfigurationListWidget", "Firmware Version"),
++	     QString::fromUtf8("إصدار البرنامج الثابت")},
++	    {TranslationKey("ConfigurationListWidget", "Comments"),
++	     QString::fromUtf8("التعليقات")},
++	    {TranslationKey("ConfigurationListWidget", "Search game name or serial"),
++	     QString::fromUtf8("ابحث باسم اللعبة أو المعرّف")},
++	    {TranslationKey("ConfigurationListWidget", "Search name or serial"),
++	     QString::fromUtf8("ابحث بالاسم أو المعرّف")},
++	    {TranslationKey("ConfigurationListWidget", "Refresh game list"),
++	     QString::fromUtf8("تحديث قائمة الألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Rescan game folders for new games"),
++	     QString::fromUtf8("إعادة فحص مجلدات الألعاب")},
++	    {TranslationKey("ConfigurationListWidget", "Edit global settings"),
++	     QString::fromUtf8("تعديل الإعدادات العامة")},
++	    {TranslationKey("ConfigurationListWidget", "Edit input mapping"),
++	     QString::fromUtf8("تعديل تعيين الإدخال")},
++	    {TranslationKey("ConfigurationListWidget", "Edit configuration"),
++	     QString::fromUtf8("تعديل الإعدادات")},
++	    {TranslationKey("ConfigurationListWidget", "Delete configuration"),
++	     QString::fromUtf8("حذف الإعدادات")},
++	};
++	return translations;
++}
++
++class LauncherTranslator final: public QTranslator {
++public:
++	explicit LauncherTranslator(QObject* parent = nullptr): QTranslator(parent) {}
++
++	QString translate(const char* context, const char* source, const char* /*disambiguation*/,
++	                  int /*n*/) const override {
++		return ArabicTranslations().value(TranslationKey(context, source));
++	}
++};
++
++QTranslator& ArabicTranslator() {
++	static LauncherTranslator translator;
++	return translator;
++}
++
++std::unique_ptr<QSettings> Settings() {
++	if (QFile::exists(QDir::current().filePath(QString::fromLatin1(SETTINGS_FILE)))) {
++		return std::make_unique<QSettings>(QString::fromLatin1(SETTINGS_FILE), QSettings::IniFormat);
++	}
++#ifdef __linux__
++	return std::make_unique<QSettings>(QSettings::IniFormat, QSettings::UserScope,
++	                                   QString::fromLatin1(SETTINGS_ORG),
++	                                   QString::fromLatin1(SETTINGS_APP));
++#else
++	return std::make_unique<QSettings>(QSettings::IniFormat, QSettings::UserScope,
++	                                   QString::fromLatin1(SETTINGS_ORG),
++	                                   QString::fromLatin1(SETTINGS_APP));
++#endif
++}
++
++} // namespace
++
++LauncherLanguage ReadLauncherLanguage(bool* configured) {
++	auto settings = Settings();
++	settings->beginGroup(QString::fromLatin1(SETTINGS_GROUP));
++	const bool has_value = settings->contains(QString::fromLatin1(SETTINGS_KEY));
++	const auto language = settings->value(QString::fromLatin1(SETTINGS_KEY)).toString();
++	settings->endGroup();
++	if (configured != nullptr) {
++		*configured = has_value;
++	}
++	if (has_value) {
++		return language == QLatin1String("ar") ? LauncherLanguage::Arabic
++		                                      : LauncherLanguage::English;
++	}
++	return QLocale::system().language() == QLocale::Arabic ? LauncherLanguage::Arabic
++	                                                        : LauncherLanguage::English;
++}
++
++void WriteLauncherLanguage(LauncherLanguage language) {
++	auto settings = Settings();
++	settings->beginGroup(QString::fromLatin1(SETTINGS_GROUP));
++	settings->setValue(QString::fromLatin1(SETTINGS_KEY),
++	                   language == LauncherLanguage::Arabic ? QStringLiteral("ar")
++	                                                        : QStringLiteral("en"));
++	settings->endGroup();
++	settings->sync();
++}
++
++bool ReadFirstRunSetupCompleted() {
++	auto settings = Settings();
++	settings->beginGroup(QString::fromLatin1(SETTINGS_GROUP));
++	const bool completed = settings->value(QString::fromLatin1(FIRST_RUN_KEY), false).toBool();
++	settings->endGroup();
++	return completed;
++}
++
++void WriteFirstRunSetupCompleted() {
++	auto settings = Settings();
++	settings->beginGroup(QString::fromLatin1(SETTINGS_GROUP));
++	settings->setValue(QString::fromLatin1(FIRST_RUN_KEY), true);
++	settings->endGroup();
++	settings->sync();
++}
++
++void ApplyLauncherLanguage(QApplication& application, LauncherLanguage language) {
++	auto& translator = ArabicTranslator();
++	application.removeTranslator(&translator);
++	application.setLayoutDirection(language == LauncherLanguage::Arabic ? Qt::RightToLeft
++	                                                                    : Qt::LeftToRight);
++	if (language == LauncherLanguage::Arabic) {
++		application.installTranslator(&translator);
++	}
++}
++
++QString TranslateLauncherText(LauncherLanguage language, const char* context, const char* source) {
++	if (language != LauncherLanguage::Arabic) {
++		return QString::fromUtf8(source);
++	}
++	return ArabicTranslations().value(TranslationKey(context, source), QString::fromUtf8(source));
++}
+diff --git a/src/launcher/src/main.cpp b/src/launcher/src/main.cpp
+index 05710ea..22b6605 100644
+--- a/src/launcher/src/main.cpp
++++ b/src/launcher/src/main.cpp
+@@ -1,10 +1,29 @@
+ #include "mainDialog.h"
+ #include "launcherTheme.h"
++#include "launcherLanguage.h"
+ 
+ #include <QApplication>
++#include <QInputDialog>
++#include <QStringList>
+ 
+ int main(int argc, char* argv[]) {
+ 	QApplication a(argc, argv);
++	bool configured = false;
++	auto language = ReadLauncherLanguage(&configured);
++	if (!configured) {
++		bool accepted = false;
++		const auto choices = QStringList {QStringLiteral("English"), QString::fromUtf8("العربية")};
++		const auto selected = QInputDialog::getItem(
++		    nullptr, QStringLiteral("MohammedLab PS5"),
++		    QString::fromUtf8("Choose interface language / اختر لغة الواجهة"),
++		    choices, language == LauncherLanguage::Arabic ? 1 : 0, false, &accepted);
++		if (accepted) {
++			language = selected == choices.at(1) ? LauncherLanguage::Arabic
++			                                     : LauncherLanguage::English;
++			WriteLauncherLanguage(language);
++		}
++	}
++	ApplyLauncherLanguage(a, language);
+ 	LauncherTheme::Initialize(a);
+ 
+ 	MainDialog w;
+@@ -12,6 +31,7 @@ int main(int argc, char* argv[]) {
+ 	w.emit Start();
+ 
+ 	w.show();
++	w.RunFirstRunSetup();
+ 
+ 	return QApplication::exec();
+ }
+diff --git a/src/launcher/src/mainDialog.cpp b/src/launcher/src/mainDialog.cpp
+index ff8a252..ef108a8 100644
+--- a/src/launcher/src/mainDialog.cpp
++++ b/src/launcher/src/mainDialog.cpp
+@@ -4,13 +4,17 @@
+ #include "configurationItem.h"
+ #include "configurationListWidget.h"
+ #include "controllerLightbar.h"
++#include "controllerTestDialog.h"
++#include "hardwareDiagnostics.h"
+ #include "gameContent.h"
++#include "launcherLanguage.h"
+ #include "patchesDialog.h"
+ #include "updateChecker.h"
+ 
+ #include <QApplication>
+ #include <QByteArray>
+ #include <QCheckBox>
++#include <QComboBox>
+ #include <QDialog>
+ #include <QDir>
+ #include <QFile>
+@@ -21,6 +25,7 @@
+ #include <QObject>
+ #include <QPointer>
+ #include <QProcess>
++#include <QPushButton>
+ #include <QRadioButton>
+ #include <QRegularExpression>
+ #include <QSettings>
+@@ -74,6 +79,8 @@ public:
+ 	/*slots:*/
+ 
+ 	void Update();
++	void RetranslateUi();
++	void RunFirstRunSetup();
+ 	void FindInterpreter();
+ 	void Run();
+ 
+@@ -85,6 +92,7 @@ public:
+ private:
+ 	static QByteArray g_last_geometry;
+ 	static bool       g_check_updates_on_startup;
++	static LauncherLanguage g_interface_language;
+ 
+ 	Ui::MainDialog* m_ui             = {nullptr};
+ 	MainDialog*     m_main_dialog    = nullptr;
+@@ -95,10 +103,12 @@ private:
+ 	QProcess m_process;
+ 
+ 	QPointer<ConfigurationItem> m_running_item;
++	QString                    m_version;
+ };
+ 
+ QByteArray MainDialogPrivate::g_last_geometry;
+ bool       MainDialogPrivate::g_check_updates_on_startup = true;
++LauncherLanguage MainDialogPrivate::g_interface_language = LauncherLanguage::English;
+ 
+ MainDialog::MainDialog(QWidget* parent): QDialog(parent), m_p(new MainDialogPrivate(this)) {
+ 	m_p->Setup(this);
+@@ -112,8 +122,11 @@ MainDialogPrivate::~MainDialogPrivate() {
+ void MainDialogPrivate::Setup(MainDialog* main_dialog) {
+ 	m_ui = new Ui::MainDialog;
+ 	m_ui->setupUi(main_dialog);
+-
+ 	m_main_dialog = main_dialog;
++	g_interface_language = ReadLauncherLanguage();
++	m_ui->language_selector->setCurrentIndex(
++	    g_interface_language == LauncherLanguage::Arabic ? 1 : 0);
++
+ 	m_update_checker = new UpdateChecker(main_dialog);
+ 	m_ui->check_updates_on_startup->setChecked(g_check_updates_on_startup);
+ 	m_ui->check_updates_link->setVisible(UpdateChecker::IsSupported());
+@@ -139,6 +152,38 @@ void MainDialogPrivate::Setup(MainDialog* main_dialog) {
+ 		g_check_updates_on_startup = checked;
+ 		m_ui->widget->WriteSettings();
+ 	});
++	connect(m_ui->language_selector, &QComboBox::currentIndexChanged, this, [this](int index) {
++		const auto language = index == 1 ? LauncherLanguage::Arabic : LauncherLanguage::English;
++		if (language == g_interface_language) {
++			return;
++		}
++		g_interface_language = language;
++		WriteLauncherLanguage(language);
++		ApplyLauncherLanguage(*qApp, language);
++		m_ui->widget->WriteSettings();
++	});
++	connect(m_ui->button_about, &QPushButton::clicked, this, [this]() {
++		QMessageBox::about(m_main_dialog, tr("About MohammedLab PS5"),
++		                   tr("MohammedLab PS5 is based on KytyPS5.") +
++		                       QStringLiteral("\n\n") +
++		                       QStringLiteral("https://github.com/KytyPS5/KytyPS5"));
++	});
++	connect(m_ui->button_hardware, &QPushButton::clicked, this, [this]() {
++		QMessageBox dialog(m_main_dialog);
++		dialog.setWindowTitle(tr("Hardware diagnostics"));
++		dialog.setText(CollectHardwareDiagnostics(g_interface_language));
++		dialog.setTextInteractionFlags(Qt::TextSelectableByMouse);
++		dialog.exec();
++	});
++	connect(m_ui->button_controller, &QPushButton::clicked, this, [this]() {
++		if (m_process.state() != QProcess::NotRunning) {
++			return;
++		}
++		m_lightbar.Stop();
++		ControllerTestDialog dialog(m_main_dialog);
++		dialog.exec();
++		Update();
++	});
+ 	connect(main_dialog, &MainDialog::Resize, [this]() {
+ 		g_last_geometry = m_main_dialog->saveGeometry();
+ 		m_ui->widget->WriteSettings();
+@@ -154,12 +199,66 @@ void MainDialogPrivate::Setup(MainDialog* main_dialog) {
+ 	});
+ 
+ 	m_ui->label_settings_file->setText(tr("Settings file: ") + m_ui->widget->GetSettingsFile());
++	m_ui->button_hardware->setToolTip(tr("Inspect Vulkan loader, devices, API, features, and extensions"));
++	m_ui->button_controller->setToolTip(tr("Read live SDL gamepad buttons, axes, and hotplug"));
+ 
+ 	m_main_dialog->restoreGeometry(g_last_geometry);
+ 
+ 	Update();
+ }
+ 
++void MainDialogPrivate::RetranslateUi() {
++	m_ui->retranslateUi(m_main_dialog);
++	m_ui->language_selector->setCurrentIndex(
++	    g_interface_language == LauncherLanguage::Arabic ? 1 : 0);
++	m_ui->label_settings_file->setText(tr("Settings file: ") + m_ui->widget->GetSettingsFile());
++	if (!m_interpreter.isEmpty()) {
++		m_ui->label_Interpreter->setText(tr("Emulator: ") + m_interpreter);
++	}
++	if (!m_version.isEmpty()) {
++		m_ui->label_Version->setText(tr("Version: ") + m_version);
++	}
++	m_ui->button_hardware->setToolTip(tr("Inspect Vulkan loader, devices, API, features, and extensions"));
++	m_ui->button_controller->setToolTip(tr("Read live SDL gamepad buttons, axes, and hotplug"));
++	m_main_dialog->setWindowTitle(tr("MohammedLab PS5"));
++}
++
++void MainDialogPrivate::RunFirstRunSetup() {
++	if (ReadFirstRunSetupCompleted()) {
++		return;
++	}
++	if (QMessageBox::question(
++	        m_main_dialog, tr("First-run setup"),
++	        TranslateLauncherText(g_interface_language, "MainDialogPrivate",
++	                              "Inspect this PC's hardware and Vulkan driver now?")) ==
++	    QMessageBox::Yes) {
++		QMessageBox diagnostics(m_main_dialog);
++		diagnostics.setWindowTitle(tr("Hardware diagnostics"));
++		diagnostics.setText(CollectHardwareDiagnostics(g_interface_language));
++		diagnostics.setTextInteractionFlags(Qt::TextSelectableByMouse);
++		diagnostics.exec();
++	}
++	if (QMessageBox::question(
++	        m_main_dialog, tr("First-run setup"),
++	        TranslateLauncherText(
++	            g_interface_language, "MainDialogPrivate",
++	            "Add a game folder now? The existing launcher will scan for supported game files.")) ==
++	    QMessageBox::Yes) {
++		m_ui->widget->EnsureGameDirectory();
++	}
++	if (QMessageBox::question(
++	        m_main_dialog, tr("First-run setup"),
++	        TranslateLauncherText(
++	            g_interface_language, "MainDialogPrivate",
++	            "Test a connected SDL gamepad now? This checks live controls only, not in-game input.")) ==
++	    QMessageBox::Yes) {
++		ControllerTestDialog dialog(m_main_dialog);
++		dialog.exec();
++		Update();
++	}
++	WriteFirstRunSetupCompleted();
++}
++
+ void MainDialogPrivate::FindInterpreter() {
+ 	QDir search_dir(QApplication::applicationDirPath());
+ 	m_interpreter = search_dir.absoluteFilePath(EMULATOR_EXE);
+@@ -183,8 +282,8 @@ void MainDialogPrivate::FindInterpreter() {
+ 		auto lines  = output.split(QRegularExpression("[\r\n]"), Qt::SkipEmptyParts);
+ 
+ 		if (lines.count() >= 2) {
+-			m_ui->label_Version->setText(
+-			    tr("Version: ") + (lines.at(0).startsWith("exe_name") ? lines.at(1) : lines.at(0)));
++			m_version = lines.at(0).startsWith("exe_name") ? lines.at(1) : lines.at(0);
++			m_ui->label_Version->setText(tr("Version: ") + m_version);
+ 		} else {
+ 			found = false;
+ 		}
+@@ -465,6 +564,10 @@ void MainDialog::RunInterpreter(QProcess* process, const Configuration& info) {
+ 	process->waitForFinished(100);
+ }
+ 
++void MainDialog::RunFirstRunSetup() {
++	m_p->RunFirstRunSetup();
++}
++
+ void MainDialog::WriteSettings(QSettings& s) {
+ 	MainDialogPrivate::WriteSettings(s);
+ }
+@@ -478,6 +581,13 @@ void MainDialog::resizeEvent(QResizeEvent* event) {
+ 	QDialog::resizeEvent(event);
+ }
+ 
++void MainDialog::changeEvent(QEvent* event) {
++	QDialog::changeEvent(event);
++	if (event->type() == QEvent::LanguageChange && m_p != nullptr) {
++		m_p->RetranslateUi();
++	}
++}
++
+ void MainDialogPrivate::WriteSettings(QSettings& s) {
+ 	s.beginGroup(SETTINGS_MAIN_DIALOG);
+ 
+diff --git a/tests/LauncherPolicyTests.cpp b/tests/LauncherPolicyTests.cpp
+new file mode 100644
+index 0000000..6e8acc4
+--- /dev/null
++++ b/tests/LauncherPolicyTests.cpp
+@@ -0,0 +1,59 @@
++#include "hardwareDiagnostics.h"
++#include "launcherLanguage.h"
++
++#include <QCoreApplication>
++#include <QDir>
++#include <QFile>
++#include <QTemporaryDir>
++
++int main(int argc, char* argv[]) {
++	QCoreApplication application(argc, argv);
++	QTemporaryDir   settings_directory;
++	if (!settings_directory.isValid() || !QDir::setCurrent(settings_directory.path())) {
++		return 1;
++	}
++	QFile settings_file(QStringLiteral("Kyty.ini"));
++	if (!settings_file.open(QIODevice::WriteOnly)) {
++		return 2;
++	}
++	settings_file.close();
++
++	bool configured = false;
++	ReadLauncherLanguage(&configured);
++	if (configured) {
++		return 3;
++	}
++	WriteLauncherLanguage(LauncherLanguage::Arabic);
++	if (ReadLauncherLanguage(&configured) != LauncherLanguage::Arabic || !configured) {
++		return 4;
++	}
++	if (ReadFirstRunSetupCompleted()) {
++		return 5;
++	}
++	WriteFirstRunSetupCompleted();
++	if (!ReadFirstRunSetupCompleted()) {
++		return 6;
++	}
++	WriteLauncherLanguage(LauncherLanguage::English);
++	if (ReadLauncherLanguage(&configured) != LauncherLanguage::English || !configured) {
++		return 7;
++	}
++	if (TranslateLauncherText(LauncherLanguage::Arabic, "MainDialog", "Language:") !=
++	    QString::fromUtf8("اللغة:")) {
++		return 8;
++	}
++	if (TranslateLauncherText(LauncherLanguage::English, "MainDialog", "Language:") !=
++	    QStringLiteral("Language:")) {
++		return 9;
++	}
++	if (ClassifyRendererSupport(true, true, true, false, false) != RendererSupport::Unknown ||
++	    ClassifyRendererSupport(true, true, true, true, true) != RendererSupport::Supported ||
++	    ClassifyRendererSupport(true, true, false, false, false) !=
++	        RendererSupport::Unsupported ||
++	    ClassifyRendererSupport(false, false, false, false, false) != RendererSupport::Unknown ||
++	    ClassifyRendererSupport(true, true, true, true, false) !=
++	        RendererSupport::Unsupported) {
++		return 10;
++	}
++	return 0;
++}

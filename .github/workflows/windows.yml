@@ -1,0 +1,387 @@
+name: MohammedLab PS5 Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    name: Build, test, and package Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - name: Checkout recursive source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout locked vcpkg
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: microsoft/vcpkg
+          ref: 9624c70bcc649d9ecff24185a72b12e0001de6f7
+          path: _Build/vcpkg
+          persist-credentials: false
+
+      - name: Checkout pinned SwiftShader software Vulkan ICD
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: google/swiftshader
+          ref: 1e80438d2b93ef36a7c05f8d2b81233bac0e3d16
+          path: _Build/swiftshader
+          persist-credentials: false
+
+      - name: Cache locked glslang installation
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: _Build/vcpkg/installed
+          key: windows-${{ runner.arch }}-vcpkg-9624c70bcc649d9ecff24185a72b12e0001de6f7-glslang-16.1.0-vulkan-1.4.328.0
+
+      - name: Verify pinned source
+        id: source
+        shell: pwsh
+        run: |
+          $expected = 'b3e419ff1101999525fa2d061ada1d102cf788b1'
+          $actual = git -C upstream/KytyPS5 rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) {
+            throw "Unexpected KytyPS5 source commit: $actual"
+          }
+          git -C upstream/KytyPS5 submodule status --recursive
+
+      - name: Setup Visual Studio environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          arch: x64
+
+      - name: Install glslang
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '_Build/vcpkg'
+          $expectedVcpkg = '9624c70bcc649d9ecff24185a72b12e0001de6f7'
+          $actualVcpkg = git -C $vcpkgRoot rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actualVcpkg -ne $expectedVcpkg) {
+            throw "Unexpected vcpkg revision: $actualVcpkg"
+          }
+          & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install `
+            'glslang[tools,opt]:x64-windows' 'vulkan-tools:x64-windows' `
+            'vulkan-loader:x64-windows'
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg glslang/Vulkan runtime installation failed' }
+          $glslangDir = Join-Path $vcpkgRoot 'installed\x64-windows\tools\glslang'
+          if (-not (Test-Path (Join-Path $glslangDir 'glslangValidator.exe'))) {
+            throw "glslangValidator missing from $glslangDir"
+          }
+          $glslangPackage = & (Join-Path $vcpkgRoot 'vcpkg.exe') list |
+            Select-String '^glslang:x64-windows '
+          if (-not $glslangPackage -or $glslangPackage.Line -notmatch '16\.1\.0') {
+            throw "Unexpected installed glslang package: $glslangPackage"
+          }
+          $validatorVersion = & (Join-Path $glslangDir 'glslangValidator.exe') --version |
+            Select-String 'Glslang Version:.*16\.1\.0'
+          if ($LASTEXITCODE -ne 0 -or -not $validatorVersion) {
+            throw 'glslangValidator is missing or is not version 16.1.0'
+          }
+          $vulkanTools = & (Join-Path $vcpkgRoot 'vcpkg.exe') list |
+            Select-String '^vulkan-tools:x64-windows '
+          if (-not $vulkanTools -or $vulkanTools.Line -notmatch '1\.4\.328\.0') {
+            throw "Unexpected Vulkan tools package: $vulkanTools"
+          }
+          $vulkanLoader = & (Join-Path $vcpkgRoot 'vcpkg.exe') list |
+            Select-String '^vulkan-loader:x64-windows '
+          if (-not $vulkanLoader -or $vulkanLoader.Line -notmatch '1\.4\.328\.0') {
+            throw "Unexpected Vulkan loader package: $vulkanLoader"
+          }
+          $vulkanLoaderDirectory = Join-Path $vcpkgRoot 'installed\x64-windows\bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $vulkanLoaderDirectory 'vulkan-1.dll') -PathType Leaf)) {
+            throw "Pinned Vulkan loader DLL missing from $vulkanLoaderDirectory"
+          }
+          $vulkanInfo = Join-Path $vcpkgRoot 'installed\x64-windows\tools\vulkan-tools\vulkaninfo.exe'
+          if (-not (Test-Path -LiteralPath $vulkanInfo -PathType Leaf)) {
+            throw "Pinned vulkaninfo.exe is missing: $vulkanInfo"
+          }
+          "VCPKG_COMMIT=$actualVcpkg" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GLSLANG_PACKAGE=$($glslangPackage.Line.Trim())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GLSLANG_VALIDATOR_VERSION=$($validatorVersion.Line.Trim())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VULKAN_TOOLS_PACKAGE=$($vulkanTools.Line.Trim())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VULKAN_LOADER_PACKAGE=$($vulkanLoader.Line.Trim())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VULKAN_LOADER_DIR=$vulkanLoaderDirectory" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VULKANINFO_PATH=$vulkanInfo" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $glslangDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build pinned SwiftShader Vulkan ICD
+        id: swiftshader
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path _Build/reports -Force | Out-Null
+          $expected = '1e80438d2b93ef36a7c05f8d2b81233bac0e3d16'
+          $actual = git -C _Build/swiftshader rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) {
+            throw "Unexpected SwiftShader source revision: $actual"
+          }
+          $swiftShaderPatch = Join-Path $env:GITHUB_WORKSPACE `
+            'patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch'
+          git -C _Build/swiftshader apply --check $swiftShaderPatch
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader clang-cl patch preflight failed' }
+          git -C _Build/swiftshader apply $swiftShaderPatch
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader clang-cl patch application failed' }
+          $swiftShaderCmake = Get-Content _Build/swiftshader/CMakeLists.txt -Raw
+          if ($swiftShaderCmake -notmatch 'if\(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang"\)\s+set_cpp_flag\("/MP"\)') {
+            throw 'SwiftShader /MP option was not gated for non-Clang MSVC'
+          }
+          cmake -S _Build/swiftshader -B _Build/swiftshader-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
+            -DSWIFTSHADER_BUILD_TESTS=OFF `
+            -DSWIFTSHADER_BUILD_BENCHMARKS=OFF `
+            -DSWIFTSHADER_BUILD_PVR=OFF 2>&1 |
+            Tee-Object -FilePath _Build/reports/swiftshader-configure.log
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader CMake configure failed' }
+          cmake --build _Build/swiftshader-build --target vk_swiftshader --parallel 2>&1 |
+            Tee-Object -FilePath _Build/reports/swiftshader-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader ICD build failed' }
+          $icdDirectory = Join-Path $env:GITHUB_WORKSPACE '_Build/swiftshader-build/Windows'
+          foreach ($file in @('vk_swiftshader.dll', 'vk_swiftshader_icd.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $icdDirectory $file) -PathType Leaf)) {
+              throw "SwiftShader build output missing: $file"
+            }
+          }
+          "VK_ICD_FILENAMES=$(Join-Path $icdDirectory 'vk_swiftshader_icd.json')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SWIFTSHADER_COMMIT=$actual" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Qt 6.10.3
+        uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005
+        with:
+          version: '6.10.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Verify toolchain
+        id: toolchain
+        shell: pwsh
+        run: |
+          git --version
+          cmake --version
+          ninja --version
+          clang-cl --version
+          glslangValidator --version
+          Write-Host "Qt6_DIR=$env:Qt6_DIR"
+
+      - name: Apply tracked source patches
+        id: patch
+        shell: pwsh
+        run: ./scripts/apply-upstream-patches.ps1
+
+      - name: Configure patched pinned source
+        id: configure
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path _Build/reports -Force | Out-Null
+          cmake -S upstream/KytyPS5 -B _Build/windows -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON `
+            -DBUILD_TESTING=ON `
+            -DKYTY_BUILD_ORIGIN=Fork `
+            -DKYTY_BUILD_REPOSITORY="${{ github.repository }}" `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" 2>&1 |
+            Tee-Object -FilePath _Build/reports/configure.log
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+
+      - name: Build launcher, emulator, and every registered test executable
+        id: build
+        shell: pwsh
+        run: |
+          cmake --build _Build/windows --target launcher kyty_emulator `
+            kyty_tests --parallel 2>&1 |
+            Tee-Object -FilePath _Build/reports/build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+
+      - name: Probe Vulkan software device
+        id: vulkan_probe
+        shell: pwsh
+        run: |
+          $probeLog = '_Build/reports/vulkan-probe.log'
+          $env:PATH = "$env:VULKAN_LOADER_DIR;$env:PATH"
+          $probeOutput = & $env:VULKANINFO_PATH 2>&1
+          $probeExitCode = $LASTEXITCODE
+          $probeOutput | Tee-Object -FilePath $probeLog
+          $probeText = $probeOutput -join "`n"
+          $apiMatch = [regex]::Match($probeText, 'apiVersion\s*=\s*(\d+)\.(\d+)\.(\d+)')
+          $deviceMatch = [regex]::Match($probeText, 'deviceName\s*=\s*(.+)')
+          $hasVulkan13 = $apiMatch.Success -and (
+            [int]$apiMatch.Groups[1].Value -gt 1 -or
+            ([int]$apiMatch.Groups[1].Value -eq 1 -and [int]$apiMatch.Groups[2].Value -ge 3)
+          )
+          $requiredExtensions = @(
+            'VK_KHR_swapchain',
+            'VK_EXT_depth_clip_control',
+            'VK_EXT_image_view_min_lod',
+            'VK_KHR_push_descriptor',
+            'VK_KHR_maintenance1',
+            'VK_EXT_depth_clip_enable',
+            'VK_EXT_color_write_enable',
+            'VK_KHR_fragment_shader_barycentric'
+          )
+          $requiredFeatures = @(
+            'colorWriteEnable', 'minLod', 'depthClipControl', 'depthClipEnable',
+            'depthClamp', 'fragmentShaderBarycentric', 'samplerMirrorClampToEdge',
+            'timelineSemaphore', 'shaderOutputLayer', 'shaderOutputViewportIndex',
+            'bufferDeviceAddress', 'shaderBufferInt64Atomics', 'robustImageAccess',
+            'dynamicRendering', 'synchronization2', 'sampleRateShading',
+            'depthBiasClamp', 'shaderClipDistance', 'shaderCullDistance',
+            'largePoints', 'multiViewport', 'fillModeNonSolid',
+            'fragmentStoresAndAtomics', 'samplerAnisotropy', 'robustBufferAccess',
+            'depthBounds', 'shaderStorageImageWriteWithoutFormat',
+            'shaderImageGatherExtended', 'independentBlend', 'tessellationShader',
+            'shaderInt64', 'vertexPipelineStoresAndAtomics', 'dualSrcBlend'
+          )
+          $missingExtensions = @($requiredExtensions | Where-Object {
+            $probeText -notmatch [regex]::Escape($_)
+          })
+          $missingFeatures = @($requiredFeatures | Where-Object {
+            $probeText -notmatch "(?m)^\s*$([regex]::Escape($_))\s*=\s*true\s*$"
+          })
+          if ($probeExitCode -eq 0 -and $probeText -match 'GPU0:' -and
+              $deviceMatch.Success -and $deviceMatch.Groups[1].Value -match 'SwiftShader' -and
+              $hasVulkan13 -and $missingExtensions.Count -eq 0 -and
+              $missingFeatures.Count -eq 0) {
+            $status = "AVAILABLE: $($deviceMatch.Groups[1].Value.Trim()); Vulkan $($apiMatch.Groups[1].Value).$($apiMatch.Groups[2].Value).$($apiMatch.Groups[3].Value)"
+            'VULKAN_PROBE_RESULT=available' |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            $missing = @($missingExtensions | ForEach-Object { "extension $_" }) +
+              @($missingFeatures | ForEach-Object { "feature $_" })
+            $status = "NOT AVAILABLE: SwiftShader Vulkan 1.3 capability probe failed (exit=$probeExitCode, apiVersion=$($apiMatch.Value), device=$($deviceMatch.Groups[1].Value), missing=$($missing -join ', ')); see vulkan-probe.log"
+            'VULKAN_PROBE_RESULT=unavailable' |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          $status | Tee-Object -FilePath _Build/reports/vulkan-probe-status.txt
+          "VULKAN_PROBE_STATUS=$status" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run CTest with explicit Vulkan capability policy
+        id: ctest
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:VULKAN_LOADER_DIR;$env:PATH"
+          if ($env:VULKAN_PROBE_RESULT -eq 'available') {
+            'All CTest registrations selected; SwiftShader Vulkan 1.3 device probe passed.' |
+              Set-Content _Build/reports/vulkan-not-tested.txt
+            ctest --test-dir _Build/windows --output-on-failure --no-tests=error `
+              --output-log _Build/reports/ctest.log 2>&1 |
+              Tee-Object -FilePath _Build/reports/ctest-console.log
+          } else {
+            ctest --test-dir _Build/windows -N -L requires-vulkan-device 2>&1 |
+              Tee-Object -FilePath _Build/reports/vulkan-not-tested.txt
+            ctest --test-dir _Build/windows -LE requires-vulkan-device `
+              --output-on-failure --no-tests=error `
+              --output-log _Build/reports/ctest.log 2>&1 |
+              Tee-Object -FilePath _Build/reports/ctest-console.log
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+
+      - name: Install and validate portable package
+        id: package
+        shell: pwsh
+        run: |
+          cmake --install _Build/windows --prefix _Build/windows/install
+          if ($LASTEXITCODE -ne 0) { throw 'CMake install failed' }
+          ./scripts/package-windows.ps1 `
+            -InstallDirectory _Build/windows/install `
+            -VcpkgInstallDirectory _Build/vcpkg/installed/x64-windows `
+            -SwiftShaderLicensePath _Build/swiftshader/LICENSE.txt `
+            -SourceDirectory . `
+            -OutputDirectory artifacts `
+            -Commit "${{ github.sha }}"
+
+      - name: Write verification report
+        if: always()
+        shell: pwsh
+        env:
+          SOURCE_RESULT: ${{ steps.patch.outcome }}
+          TOOLCHAIN_RESULT: ${{ steps.toolchain.outcome }}
+          CONFIGURE_RESULT: ${{ steps.configure.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          CTEST_RESULT: ${{ steps.ctest.outcome }}
+          SWIFTSHADER_RESULT: ${{ steps.swiftshader.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
+        run: |
+          New-Item -ItemType Directory -Path artifacts/reports -Force | Out-Null
+          @(
+            "Commit: $env:GITHUB_SHA"
+            "Runner: windows-2022"
+            "Pinned KytyPS5: b3e419ff1101999525fa2d061ada1d102cf788b1"
+            "Pinned vcpkg: $env:VCPKG_COMMIT"
+            "glslang: $env:GLSLANG_PACKAGE"
+            "glslangValidator: $env:GLSLANG_VALIDATOR_VERSION"
+            "Vulkan tools: $env:VULKAN_TOOLS_PACKAGE"
+            "Vulkan loader: $env:VULKAN_LOADER_PACKAGE"
+            "SwiftShader source: $env:SWIFTSHADER_COMMIT"
+            "Vulkan software device probe: $env:VULKAN_PROBE_STATUS"
+            "Source checkout: $env:SOURCE_RESULT"
+            "Toolchain verification: $env:TOOLCHAIN_RESULT"
+            "CMake configure: $env:CONFIGURE_RESULT"
+            "Build: $env:BUILD_RESULT"
+            "SwiftShader software ICD build: $env:SWIFTSHADER_RESULT"
+            "CTest: $env:CTEST_RESULT"
+            "Vulkan-labeled tests are NOT TESTED only when the device probe is unavailable; see vulkan-not-tested.txt"
+            "Packaging: $env:PACKAGE_RESULT"
+          ) | Set-Content -LiteralPath artifacts/reports/VERIFICATION.txt -Encoding utf8
+          if (Test-Path _Build/reports) {
+            Copy-Item _Build/reports/* artifacts/reports/ -Force
+          }
+
+      - name: Upload build and test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MohammedLab-PS5-Windows-reports
+          path: artifacts/reports/**
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload validated Windows ZIP and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MohammedLab-PS5-Windows-x64
+          path: |
+            artifacts/MohammedLab-PS5-Windows-x64.zip
+            artifacts/MohammedLab-PS5-Windows-x64.zip.sha256
+            artifacts/build-manifest.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload matching recursive source and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MohammedLab-PS5-source
+          path: |
+            artifacts/MohammedLab-PS5-source.zip
+            artifacts/MohammedLab-PS5-source.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

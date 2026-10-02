@@ -1,0 +1,85 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index cba1446..81ba3cc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -36,20 +36,73 @@ execute_process(
+ 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+ 	OUTPUT_VARIABLE FFMPEG_GIT_SHA
+ 	OUTPUT_STRIP_TRAILING_WHITESPACE)
++if(NOT FFMPEG_GIT_SHA)
++	# Source archives have no .git metadata; this fallback is the pinned
++	# ext-ffmpeg-core gitlink revision recorded by the parent project.
++	set(FFMPEG_GIT_SHA "9ac4cfd195f1")
++endif()
+ 
+ # An existing package can be tested before publishing it.
+ set(FFMPEG_PREBUILT_DIR "" CACHE PATH "Directory containing an unpacked FFmpeg package")
+ if(NOT FFMPEG_PREBUILT_DIR)
+ 	set(FFMPEG_PREBUILT_DIR "${CMAKE_BINARY_DIR}/externals/ffmpeg-${FFMPEG_GIT_SHA}")
+ 	set(FFMPEG_ZIP_PATH "${CMAKE_BINARY_DIR}/externals/${FFMPEG_GIT_SHA}-${FFMPEG_PREBUILTS_NAME}")
+-	if(NOT EXISTS "${FFMPEG_ZIP_PATH}")
+-		message(STATUS "Downloading FFmpeg libraries...")
+-		file(DOWNLOAD https://github.com/KytyPS5/ext-ffmpeg-core/releases/download/${FFMPEG_GIT_SHA}/${FFMPEG_PREBUILTS_NAME}
+-			"${FFMPEG_ZIP_PATH}" SHOW_PROGRESS STATUS FILE_STATUS)
+-		list(GET FILE_STATUS 0 STATUS_CODE)
+-		if(NOT STATUS_CODE EQUAL 0)
++	set(FFMPEG_EXPECTED_SHA256 "")
++	if(WIN32 AND ARCHITECTURE STREQUAL "x86_64" AND FFMPEG_GIT_SHA STREQUAL "9ac4cfd195f1")
++		set(FFMPEG_EXPECTED_SHA256
++		    "32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09")
++	endif()
++	set(FFMPEG_DOWNLOAD_NEEDED TRUE)
++	if(EXISTS "${FFMPEG_ZIP_PATH}" AND FFMPEG_EXPECTED_SHA256)
++		file(SHA256 "${FFMPEG_ZIP_PATH}" FFMPEG_EXISTING_SHA256)
++		if(FFMPEG_EXISTING_SHA256 STREQUAL FFMPEG_EXPECTED_SHA256)
++			set(FFMPEG_DOWNLOAD_NEEDED FALSE)
++		else()
+ 			file(REMOVE "${FFMPEG_ZIP_PATH}")
+-			message(FATAL_ERROR "Could not download FFmpeg ${FFMPEG_GIT_SHA}: ${FILE_STATUS}")
++		endif()
++	endif()
++	if(NOT EXISTS "${FFMPEG_ZIP_PATH}")
++		set(FFMPEG_DOWNLOAD_NEEDED TRUE)
++	endif()
++	if(FFMPEG_DOWNLOAD_NEEDED)
++		message(STATUS "Downloading pinned FFmpeg libraries...")
++		if(FFMPEG_EXPECTED_SHA256)
++			set(FFMPEG_DOWNLOAD_OK FALSE)
++			foreach(FFMPEG_ATTEMPT RANGE 1 3)
++				file(DOWNLOAD
++					"https://github.com/KytyPS5/ext-ffmpeg-core/releases/download/${FFMPEG_GIT_SHA}/${FFMPEG_PREBUILTS_NAME}"
++					"${FFMPEG_ZIP_PATH}"
++					SHOW_PROGRESS
++					EXPECTED_HASH "SHA256=${FFMPEG_EXPECTED_SHA256}"
++					TLS_VERIFY ON
++					TIMEOUT 180
++					STATUS FILE_STATUS
++					LOG FILE_LOG)
++				list(GET FILE_STATUS 0 STATUS_CODE)
++				if(STATUS_CODE EQUAL 0)
++					set(FFMPEG_DOWNLOAD_OK TRUE)
++					break()
++				endif()
++				file(REMOVE "${FFMPEG_ZIP_PATH}")
++				message(WARNING "FFmpeg download attempt ${FFMPEG_ATTEMPT} failed: ${FILE_STATUS}")
++			endforeach()
++			if(NOT FFMPEG_DOWNLOAD_OK)
++				message(FATAL_ERROR "Could not download and verify pinned FFmpeg archive: ${FILE_LOG}")
++			endif()
++		else()
++			file(DOWNLOAD
++				"https://github.com/KytyPS5/ext-ffmpeg-core/releases/download/${FFMPEG_GIT_SHA}/${FFMPEG_PREBUILTS_NAME}"
++				"${FFMPEG_ZIP_PATH}"
++				SHOW_PROGRESS
++				TLS_VERIFY ON
++				TIMEOUT 180
++				STATUS FILE_STATUS
++				LOG FILE_LOG)
++			list(GET FILE_STATUS 0 STATUS_CODE)
++			if(NOT STATUS_CODE EQUAL 0)
++				file(REMOVE "${FFMPEG_ZIP_PATH}")
++				message(FATAL_ERROR "Could not download FFmpeg ${FFMPEG_GIT_SHA}: ${FILE_STATUS} ${FILE_LOG}")
++			endif()
+ 		endif()
+ 	endif()
+ 	if(NOT EXISTS "${FFMPEG_PREBUILT_DIR}/include/libavcodec/avcodec.h")
