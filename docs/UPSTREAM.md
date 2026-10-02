@@ -36,11 +36,18 @@ That revision records the MSYS2 runtime archive name and SHA-512 in the lock
 (3.6.5-1), replacing the deleted 3.5.4-2 package used by the previous pin. It
 verifies the `glslang` 16.1.0 port and `glslangValidator` version, with the
 requested `tools,opt` features, then caches the installed tree under a key
-containing those pins. The FFmpeg source revision is
+containing those pins. It also installs pinned Vulkan-Loader and Vulkan-Tools
+1.4.328.0 (their exact source SHA-512 hashes and Apache-2.0 licenses are in
+`upstream.lock`) for the runtime and `vulkaninfo` probe, and builds the Apache-2.0 SwiftShader software
+ICD from the exact source commit in `upstream.lock`. The software device is
+used only for CI Vulkan-dependent tests; it is not included in the application
+ZIP and does not represent physical-GPU validation. Its Apache-2.0 license is
+collected in the binary and source archives. The FFmpeg source revision is
 the pinned recursive gitlink; the actual static Windows archive digest is
 recorded separately. The FFmpeg install step contributes its copyright,
 build-log, and source provenance under `licenses/ffmpeg`. Qt license texts
-and the installed vcpkg-port notices (glslang, SPIRV-Tools and SPIRV-Headers)
+and the installed vcpkg-port notices (glslang, SPIRV-Tools, SPIRV-Headers,
+Vulkan-Tools, Vulkan-Loader, Volk and Vulkan-Headers)
 are collected outside the engine tree into both binary and source deliveries.
 
 The recursive source ZIP includes initialized submodule source files, the
@@ -58,15 +65,52 @@ clang-cl, then restore vcpkg and build:
 git clone https://github.com/microsoft/vcpkg.git _Build/vcpkg
 git -C _Build/vcpkg checkout 9624c70bcc649d9ecff24185a72b12e0001de6f7
 ./_Build/vcpkg/bootstrap-vcpkg.bat -disableMetrics
-./_Build/vcpkg/vcpkg.exe install 'glslang[tools,opt]:x64-windows'
+./_Build/vcpkg/vcpkg.exe install 'glslang[tools,opt]:x64-windows' 'vulkan-tools:x64-windows' 'vulkan-loader:x64-windows'
 ./scripts/apply-upstream-patches.ps1
 cmake -S upstream/KytyPS5 -B _Build/windows -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
   -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
 cmake --build _Build/windows --target launcher kyty_emulator kyty_tests
+```
+
+To reproduce CI's software Vulkan tests, restore SwiftShader at the immutable
+commit in `upstream.lock`:
+
+```powershell
+git clone https://github.com/google/swiftshader.git _Build/swiftshader
+git -C _Build/swiftshader checkout 1e80438d2b93ef36a7c05f8d2b81233bac0e3d16
+cmake -S _Build/swiftshader -B _Build/swiftshader-build -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl `
+  -DCMAKE_CXX_COMPILER=clang-cl -DSWIFTSHADER_BUILD_TESTS=OFF `
+  -DSWIFTSHADER_BUILD_BENCHMARKS=OFF -DSWIFTSHADER_BUILD_PVR=OFF
+cmake --build _Build/swiftshader-build --target vk_swiftshader
+$env:VK_ICD_FILENAMES = (Resolve-Path _Build/swiftshader-build/Windows/vk_swiftshader_icd.json)
+$env:PATH = "$(Resolve-Path _Build/vcpkg/installed/x64-windows/bin);$env:PATH"
+& _Build/vcpkg/installed/x64-windows/tools/vulkan-tools/vulkaninfo.exe
+```
+
+If the output enumerates Vulkan 1.3 SwiftShader, run the full test suite:
+
+```powershell
 ctest --test-dir _Build/windows --output-on-failure --no-tests=error
 ```
+
+If no device is enumerated, keep all non-device tests required and list the
+environment-limited group explicitly:
+
+```powershell
+ctest --test-dir _Build/windows -N -L requires-vulkan-device
+ctest --test-dir _Build/windows -LE requires-vulkan-device --output-on-failure --no-tests=error
+```
+
+CI checks that `vulkaninfo` enumerates a Vulkan 1.3 SwiftShader device and
+reports the engine's required device extensions and Vulkan 1.2/1.3/core
+features before
+running tests labeled `requires-vulkan-device`. If no device is available,
+only those explicitly labeled tests are reported NOT TESTED; all independent
+CTest tests remain mandatory. The test ICD and vulkaninfo are not bundled with
+the emulator and do not establish physical GPU or game compatibility.
 
 The patch script detects that the included source patches are already applied.
 For a Git checkout instead, initialize recursive submodules first and run the

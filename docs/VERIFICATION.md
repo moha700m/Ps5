@@ -9,11 +9,12 @@ successful package.
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
 | Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock`; the source ZIP includes the applied files and patches |
-| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: updated run is `action_required` with zero jobs; fix not yet Windows-validated | [Run 36964603879](https://github.com/moha700m/Ps5/actions/runs/36964603879) requires owner approval. The preceding [run 36963280910](https://github.com/moha700m/Ps5/actions/runs/36963280910) failed downloading `msys2-runtime-3.5.4-2` before Qt, configure, build, CTest, or packaging. The workflow now pins vcpkg `9624c70bcc649d9ecff24185a72b12e0001de6f7`, whose lock records runtime `3.6.5-1` and its SHA-512 |
+| Windows clang-cl/Ninja/CMake/Qt build | PASS through configure and all build targets in run 36964661487; CTest failed in the Vulkan environment; package skipped | [Run 36964661487](https://github.com/moha700m/Ps5/actions/runs/36964661487), job [110708466135](https://github.com/moha700m/Ps5/actions/runs/36964661487/job/110708466135): 32/51 tests passed. One failed creating an SDL hidden Vulkan window; 18 Vulkan tests could not load the Vulkan loader/device. The follow-up pins Vulkan-Loader and vulkaninfo via vcpkg, builds pinned SwiftShader, probes Vulkan 1.3 plus engine-required extensions/features, and labels/gates only Vulkan-dependent tests if no suitable device is available. Follow-up Windows run pending |
 | Local Linux CMake configure | PASS with SDL console mode only | CMake 3.31.6 / Qt 6.4.2 configured the patched source with pinned FetchContent dependencies and verified the FFmpeg archive digest; the normal desktop configure lacked X11/Wayland development packages. This does not validate Windows or a desktop UI |
-| Local Linux full launcher build | BLOCKED on a pinned upstream error | GCC 13.3 rejects the default constructor of `Ngs2RackOptionUnion` in `src/libs/ngs2.cpp:1183` because its members have non-trivial constructors. This is outside the UI/diagnostic patches; no emulation change was made. The required Windows clang-cl workflow remains approval-gated |
-| All registered upstream CTest regressions | BLOCKED: current revision build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no result exists for the current source. [Earlier run 36951845559](https://github.com/moha700m/Ps5/actions/runs/36951845559) was still at toolchain verification on the preceding revision |
-| Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | Workflow-gated | `scripts/package-windows.ps1`; missing licenses/runtime/source entries fail packaging |
+| Local Linux full launcher build | BLOCKED on a pinned upstream error | GCC 13.3 rejects the default constructor of `Ngs2RackOptionUnion` in `src/libs/ngs2.cpp:1183` because its members have non-trivial constructors. This is outside the UI/diagnostic patches; no emulation change was made. The Windows clang-cl configure/build completed successfully in run 36964661487 |
+| CTest independent of Vulkan device | 32/32 PASS in run 36964661487 | Windows 2022 clang-cl/Ninja; full job log shows all 32 non-Vulkan-labeled tests passed |
+| Vulkan-dependent CTest group | NOT TESTED successfully in run 36964661487 | 19 tests failed with missing Vulkan loader/device or SDL Vulkan window creation; follow-up labels these tests and requires a successful SwiftShader Vulkan 1.3 probe before running. If unavailable, exact labels are reported NOT TESTED and other tests remain required |
+| Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | Workflow-gated; packaging was skipped after prior CTest failure | `scripts/package-windows.ps1`; missing licenses/runtime/source entries fail packaging |
 | Focused localization/configuration and renderer-classification tests | PASS (local Linux, Qt 6.4.2) | `LauncherPolicyTests.cpp` compiled with clang++ and passed; covers language persistence, first-run completion persistence, translation selection, and unknown/unsupported/supported classification |
 | SDL dialog and launcher-form compile checks | PASS (syntax/UI generation only) | Controller dialog compiled syntax-only against SDL3; Qt `uic` generated the patched main dialog. No GUI or physical controller was exercised |
 | Packaging/source ZIP script fixture | PASS (synthetic inputs only) | Temporary fake x64 PE headers, runtime files, and license fixtures exercised archive-entry/CRC/hash checks; both SHA-256 files verified and extracted source ZIP patch detection passed. This is not a Windows build or deliverable |
@@ -27,13 +28,16 @@ successful package.
 | Specific game boot/menu/in-game/playable test | NOT TESTED | Owner must record title, version/title ID, status, duration, and crashes |
 | Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller, verify the diagnostic, and test actual game input |
 
-The new run 36964603879 is `action_required` with zero jobs, so the owner must
-approve it before any Windows validation can execute. The preceding executed
-run, 36963280910, failed dependency installation before Qt setup or CMake due
-to the removed MSYS2 runtime `3.5.4-2`. This change pins a vcpkg revision
-recording runtime `3.6.5-1` and checks `glslangValidator` 16.1.0 before
-configure. Windows configure/build/CTest and both ZIPs remain unverified and
-no Windows artifact exists.
+Run 36964661487 confirms that the pinned dependency install, patched-source
+configure, and launcher/emulator/test builds succeeded. CTest then produced
+32 passes and 19 environment failures: the kernel file-system test could not
+create an SDL Vulkan window, while Vulkan tests could not load a Vulkan
+device. The follow-up builds the pinned SwiftShader software ICD and probes
+for a Vulkan 1.3 device and engine-required extensions/features before running explicitly labeled Vulkan tests; if no
+device exists, only that group is marked NOT TESTED while independent tests
+and packaging remain required. This follow-up has not yet run, so its
+behavior and the ZIP remain unverified. Software rendering does not verify
+physical GPUs or games.
 
 ## Owner hardware checks
 

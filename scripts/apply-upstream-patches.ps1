@@ -8,12 +8,13 @@ $expectedFfmpeg = '9ac4cfd195f192ed8b08566f49c28dbb48d08341'
 $enginePatch = Join-Path $repository 'patches/upstream/0001-mohammedlab-launcher.patch'
 $ffmpegPatch = Join-Path $repository 'patches/upstream/0002-ffmpeg-source-lock.patch'
 $extentPatch = Join-Path $repository 'patches/upstream/0003-vulkan-extent-initializers.patch'
+$vulkanTestsPatch = Join-Path $repository 'patches/upstream/0004-label-vulkan-device-tests.patch'
 
 if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt')) -or
     -not (Test-Path -LiteralPath (Join-Path $ffmpeg 'CMakeLists.txt'))) {
     throw 'Recursive source files are missing; initialize submodules or restore the complete source archive'
 }
-foreach ($patch in @($enginePatch, $ffmpegPatch, $extentPatch)) {
+foreach ($patch in @($enginePatch, $ffmpegPatch, $extentPatch, $vulkanTestsPatch)) {
     if (-not (Test-Path -LiteralPath $patch -PathType Leaf)) {
         throw "Required upstream patch is missing: $patch"
     }
@@ -48,7 +49,8 @@ if ($hasGitMetadata) {
 foreach ($item in @(
     @{ Root = $engine; Patch = $enginePatch; Name = 'KytyPS5' },
     @{ Root = $ffmpeg; Patch = $ffmpegPatch; Name = 'FFmpeg' },
-    @{ Root = $engine; Patch = $extentPatch; Name = 'Vulkan extent initializer' }
+    @{ Root = $engine; Patch = $extentPatch; Name = 'Vulkan extent initializer' },
+    @{ Root = $engine; Patch = $vulkanTestsPatch; Name = 'Vulkan-dependent CTest labels' }
 )) {
     & git -C $item.Root apply --check $item.Patch 2>$null
     if ($LASTEXITCODE -eq 0) {

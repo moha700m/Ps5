@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallDirectory,
     [Parameter(Mandatory = $true)][string]$VcpkgInstallDirectory,
+    [Parameter(Mandatory = $true)][string]$SwiftShaderLicensePath,
     [Parameter(Mandatory = $true)][string]$SourceDirectory,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [Parameter(Mandatory = $true)][string]$Commit
@@ -12,6 +13,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $install = (Resolve-Path -LiteralPath $InstallDirectory).Path
 $vcpkgInstall = (Resolve-Path -LiteralPath $VcpkgInstallDirectory).Path
+$swiftShaderLicense = (Resolve-Path -LiteralPath $SwiftShaderLicensePath).Path
 $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 $engine = Join-Path $source 'upstream/KytyPS5'
@@ -21,7 +23,8 @@ $ffmpegArchiveSha256 = '32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1ea
 $patchPaths = @(
     'patches/upstream/0001-mohammedlab-launcher.patch',
     'patches/upstream/0002-ffmpeg-source-lock.patch',
-    'patches/upstream/0003-vulkan-extent-initializers.patch'
+    'patches/upstream/0003-vulkan-extent-initializers.patch',
+    'patches/upstream/0004-label-vulkan-device-tests.patch'
 )
 
 if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt'))) {
@@ -125,7 +128,9 @@ $vcpkgLicenseFiles = @(Get-ChildItem -LiteralPath (Join-Path $vcpkgInstall 'shar
             Get-Item -LiteralPath $license
         }
     })
-$requiredVcpkgLicenses = @('glslang', 'spirv-tools', 'spirv-headers')
+$requiredVcpkgLicenses = @(
+    'glslang', 'spirv-tools', 'spirv-headers', 'vulkan-tools', 'vulkan-loader', 'volk', 'vulkan-headers'
+)
 foreach ($packageName in $requiredVcpkgLicenses) {
     if (-not ($vcpkgLicenseFiles | Where-Object {
         $_.Directory.Name -ieq $packageName
@@ -155,6 +160,9 @@ try {
     Copy-Item -LiteralPath (Join-Path $engine 'LICENSE') -Destination (Join-Path $package 'LICENSE')
     Copy-Item -LiteralPath (Join-Path $engine 'LICENSES/Kyty-MIT.txt') `
         -Destination (Join-Path $package 'LICENSES-Kyty-MIT.txt')
+    $swiftShaderLicenseDestination = Join-Path $package 'licenses/SwiftShader/LICENSE.txt'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $swiftShaderLicenseDestination) -Force | Out-Null
+    Copy-Item -LiteralPath $swiftShaderLicense -Destination $swiftShaderLicenseDestination
 
     foreach ($license in $licenseFiles) {
         $relative = [System.IO.Path]::GetRelativePath($engine, $license.FullName)
@@ -181,6 +189,10 @@ try {
         "Qt: 6.10.3 (MSVC 2022 x64)",
         "vcpkg commit: $env:VCPKG_COMMIT",
         "glslang port: $env:GLSLANG_PACKAGE",
+        "Vulkan tools: $env:VULKAN_TOOLS_PACKAGE",
+        "Vulkan loader: $env:VULKAN_LOADER_PACKAGE",
+        "SwiftShader test ICD source: $env:SWIFTSHADER_COMMIT",
+        'SwiftShader Apache-2.0 license is included; its ICD is not bundled.',
         "CMake: $((cmake --version | Select-Object -First 1).Trim())",
         "Ninja: $((ninja --version).Trim())",
         "clang-cl: $((clang-cl --version | Select-Object -First 1).Trim())",
@@ -197,6 +209,8 @@ try {
         "Qt version: 6.10.3",
         "Pinned vcpkg revision: $vcpkgSha",
         "Pinned glslang version: 16.1.0 with tools,opt features; MSYS2 runtime 3.6.5-1 is SHA-512 locked in upstream.lock; vcpkg copyright notices are included under licenses/vcpkg",
+        "CI-only Vulkan probe: vulkan-tools 1.4.328.0 and SwiftShader source $((Get-Content (Join-Path $source 'upstream.lock') | Select-String 'google/swiftshader' | ForEach-Object { $_.ToString().Trim() }))",
+        'The software Vulkan ICD and vulkaninfo test utility are CI-only and are not bundled in this application ZIP.',
         "Pinned FFmpeg recipe/source: ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341",
         "FFmpeg Windows x64 archive SHA256: $ffmpegArchiveSha256",
         'Emulator: upstream kyty_emulator.exe built from the pinned source',
@@ -276,6 +290,19 @@ try {
         $sourceZip, [System.IO.Compression.ZipArchiveMode]::Update
     )
     try {
+        $swiftShaderEntry = $sourceArchive.CreateEntry(
+            'MohammedLab-PS5-source/licenses/SwiftShader/LICENSE.txt',
+            [System.IO.Compression.CompressionLevel]::Optimal
+        )
+        $swiftShaderEntryStream = $swiftShaderEntry.Open()
+        $swiftShaderInputStream = [System.IO.File]::OpenRead($swiftShaderLicense)
+        try {
+            $swiftShaderInputStream.CopyTo($swiftShaderEntryStream)
+        }
+        finally {
+            $swiftShaderInputStream.Dispose()
+            $swiftShaderEntryStream.Dispose()
+        }
         foreach ($license in $qtLicenseFiles) {
             $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
             $entryName = "MohammedLab-PS5-source/licenses/Qt/$($relative -replace '\\', '/')"
@@ -366,7 +393,12 @@ try {
             'licenses/ffmpeg/SOURCE.txt', 'licenses/ffmpeg/build-log.txt',
             'licenses/vcpkg/glslang/copyright',
             'licenses/vcpkg/spirv-tools/copyright',
-            'licenses/vcpkg/spirv-headers/copyright'
+            'licenses/vcpkg/spirv-headers/copyright',
+            'licenses/vcpkg/vulkan-tools/copyright',
+            'licenses/vcpkg/vulkan-loader/copyright',
+            'licenses/vcpkg/volk/copyright',
+            'licenses/vcpkg/vulkan-headers/copyright',
+            'licenses/SwiftShader/LICENSE.txt'
         )) {
             if ($requiredEntry.EndsWith('/') -and
                 -not ($entries | Where-Object { $_.StartsWith($requiredEntry) })) {
@@ -394,6 +426,12 @@ try {
             'MohammedLab-PS5-source/patches/upstream/0001-mohammedlab-launcher.patch',
             'MohammedLab-PS5-source/patches/upstream/0002-ffmpeg-source-lock.patch',
             'MohammedLab-PS5-source/patches/upstream/0003-vulkan-extent-initializers.patch',
+            'MohammedLab-PS5-source/patches/upstream/0004-label-vulkan-device-tests.patch',
+            'MohammedLab-PS5-source/licenses/vcpkg/vulkan-tools/copyright',
+            'MohammedLab-PS5-source/licenses/vcpkg/vulkan-loader/copyright',
+            'MohammedLab-PS5-source/licenses/vcpkg/volk/copyright',
+            'MohammedLab-PS5-source/licenses/vcpkg/vulkan-headers/copyright',
+            'MohammedLab-PS5-source/licenses/SwiftShader/LICENSE.txt',
             'MohammedLab-PS5-source/scripts/apply-upstream-patches.ps1',
             'MohammedLab-PS5-source/upstream.lock',
             'MohammedLab-PS5-source/licenses/vcpkg/glslang/copyright',
