@@ -137,6 +137,16 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) {
             throw "Unexpected SwiftShader source revision: $actual"
           }
+          $swiftShaderPatch = Join-Path $env:GITHUB_WORKSPACE `
+            'patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch'
+          git -C _Build/swiftshader apply --check $swiftShaderPatch
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader clang-cl patch preflight failed' }
+          git -C _Build/swiftshader apply $swiftShaderPatch
+          if ($LASTEXITCODE -ne 0) { throw 'SwiftShader clang-cl patch application failed' }
+          $swiftShaderCmake = Get-Content _Build/swiftshader/CMakeLists.txt -Raw
+          if ($swiftShaderCmake -notmatch 'if\(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang"\)\s+set_cpp_flag\("/MP"\)') {
+            throw 'SwiftShader /MP option was not gated for non-Clang MSVC'
+          }
           cmake -S _Build/swiftshader -B _Build/swiftshader-build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_C_COMPILER=clang-cl `

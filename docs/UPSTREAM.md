@@ -38,8 +38,13 @@ verifies the `glslang` 16.1.0 port and `glslangValidator` version, with the
 requested `tools,opt` features, then caches the installed tree under a key
 containing those pins. It also installs pinned Vulkan-Loader and Vulkan-Tools
 1.4.328.0 (their exact source SHA-512 hashes and Apache-2.0 licenses are in
-`upstream.lock`) for the runtime and `vulkaninfo` probe, and builds the Apache-2.0 SwiftShader software
-ICD from the exact source commit in `upstream.lock`. The software device is
+`upstream.lock`) for the runtime and `vulkaninfo` probe, and builds the Apache-2.0
+SwiftShader software ICD from the exact source commit in `upstream.lock`. Before
+configuration, CI applies the tracked test-only patch
+`patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch`, which omits SwiftShader's
+unsupported MSVC `/MP` option only for clang-cl; Ninja supplies build parallelism
+and compiler warnings remain errors. The patch is checked and its SHA-256 is
+recorded in the package manifest and recursive source archive. The software device is
 used only for CI Vulkan-dependent tests; it is not included in the application
 ZIP and does not represent physical-GPU validation. Its Apache-2.0 license is
 collected in the binary and source archives. The FFmpeg source revision is
@@ -80,6 +85,9 @@ commit in `upstream.lock`:
 ```powershell
 git clone https://github.com/google/swiftshader.git _Build/swiftshader
 git -C _Build/swiftshader checkout 1e80438d2b93ef36a7c05f8d2b81233bac0e3d16
+$swiftShaderPatch = (Resolve-Path patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch).Path
+git -C _Build/swiftshader apply --check $swiftShaderPatch
+git -C _Build/swiftshader apply $swiftShaderPatch
 cmake -S _Build/swiftshader -B _Build/swiftshader-build -G Ninja `
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl `
   -DCMAKE_CXX_COMPILER=clang-cl -DSWIFTSHADER_BUILD_TESTS=OFF `

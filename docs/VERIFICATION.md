@@ -9,12 +9,12 @@ successful package.
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
 | Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock`; the source ZIP includes the applied files and patches |
-| Windows clang-cl/Ninja/CMake/Qt build | PASS through configure and all build targets in run 36964661487; CTest failed in the Vulkan environment; package skipped | [Run 36964661487](https://github.com/moha700m/Ps5/actions/runs/36964661487), job [110708466135](https://github.com/moha700m/Ps5/actions/runs/36964661487/job/110708466135): 32/51 tests passed. One failed creating an SDL hidden Vulkan window; 18 Vulkan tests could not load the Vulkan loader/device. The follow-up pins Vulkan-Loader and vulkaninfo via vcpkg, builds pinned SwiftShader, probes Vulkan 1.3 plus engine-required extensions/features, and labels/gates only Vulkan-dependent tests if no suitable device is available. Follow-up Windows run pending |
+| Windows clang-cl/Ninja/CMake/Qt build | Latest run BLOCKED while building the pinned SwiftShader test ICD; Qt/Kyty configure, build, CTest, and packaging skipped | [Run 36985972744](https://github.com/moha700m/Ps5/actions/runs/36985972744), attempt 2, job [110771139730](https://github.com/moha700m/Ps5/actions/runs/36985972744/job/110771139730): SwiftShader reached build step 964/1201, then clang-cl treated unsupported `/MP` as `-Werror,-Wunused-command-line-argument` in `src/Reactor/Assert.cpp`. A tracked CI-only SwiftShader patch now omits `/MP` only for Clang; this follow-up has not run yet. The earlier run [36964661487](https://github.com/moha700m/Ps5/actions/runs/36964661487), job [110708466135](https://github.com/moha700m/Ps5/actions/runs/36964661487/job/110708466135), built Qt/Kyty targets but had 32/51 CTest passes; package skipped |
 | Local Linux CMake configure | PASS with SDL console mode only | CMake 3.31.6 / Qt 6.4.2 configured the patched source with pinned FetchContent dependencies and verified the FFmpeg archive digest; the normal desktop configure lacked X11/Wayland development packages. This does not validate Windows or a desktop UI |
 | Local Linux full launcher build | BLOCKED on a pinned upstream error | GCC 13.3 rejects the default constructor of `Ngs2RackOptionUnion` in `src/libs/ngs2.cpp:1183` because its members have non-trivial constructors. This is outside the UI/diagnostic patches; no emulation change was made. The Windows clang-cl configure/build completed successfully in run 36964661487 |
 | CTest independent of Vulkan device | 32/32 PASS in run 36964661487 | Windows 2022 clang-cl/Ninja; full job log shows all 32 non-Vulkan-labeled tests passed |
 | Vulkan-dependent CTest group | NOT TESTED successfully in run 36964661487 | 19 tests failed with missing Vulkan loader/device or SDL Vulkan window creation; follow-up labels these tests and requires a successful SwiftShader Vulkan 1.3 probe before running. If unavailable, exact labels are reported NOT TESTED and other tests remain required |
-| Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | Workflow-gated; packaging was skipped after prior CTest failure | `scripts/package-windows.ps1`; missing licenses/runtime/source entries fail packaging |
+| Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | NOT PRODUCED; package step skipped because the latest job failed building SwiftShader | `scripts/package-windows.ps1`; required EXEs, licenses, runtime/source entries and hashes fail packaging when missing |
 | Focused localization/configuration and renderer-classification tests | PASS (local Linux, Qt 6.4.2) | `LauncherPolicyTests.cpp` compiled with clang++ and passed; covers language persistence, first-run completion persistence, translation selection, and unknown/unsupported/supported classification |
 | SDL dialog and launcher-form compile checks | PASS (syntax/UI generation only) | Controller dialog compiled syntax-only against SDL3; Qt `uic` generated the patched main dialog. No GUI or physical controller was exercised |
 | Packaging/source ZIP script fixture | PASS (synthetic inputs only) | Temporary fake x64 PE headers, runtime files, and license fixtures exercised archive-entry/CRC/hash checks; both SHA-256 files verified and extracted source ZIP patch detection passed. This is not a Windows build or deliverable |
@@ -28,16 +28,15 @@ successful package.
 | Specific game boot/menu/in-game/playable test | NOT TESTED | Owner must record title, version/title ID, status, duration, and crashes |
 | Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller, verify the diagnostic, and test actual game input |
 
-Run 36964661487 confirms that the pinned dependency install, patched-source
-configure, and launcher/emulator/test builds succeeded. CTest then produced
-32 passes and 19 environment failures: the kernel file-system test could not
-create an SDL Vulkan window, while Vulkan tests could not load a Vulkan
-device. The follow-up builds the pinned SwiftShader software ICD and probes
-for a Vulkan 1.3 device and engine-required extensions/features before running explicitly labeled Vulkan tests; if no
-device exists, only that group is marked NOT TESTED while independent tests
-and packaging remain required. This follow-up has not yet run, so its
-behavior and the ZIP remain unverified. Software rendering does not verify
-physical GPUs or games.
+Run 36985972744 (attempt 2) confirmed pinned source checkout and dependency
+installation, then failed compiling SwiftShader: its MSVC-oriented `/MP` flag
+became an error under clang-cl's warning-as-error settings. The tracked,
+test-only patch guards only that option from clang-cl; it does not weaken
+warnings or change the emulator source. The fix and downstream Vulkan probe,
+CTest policy, and packaging have not yet run. Earlier run 36964661487 confirms
+Qt/Kyty configure and build succeeded, but CTest passed 32/51 and packaging was
+skipped. No Windows ZIP is available. Software rendering, if validated in CI,
+does not verify physical GPUs or games.
 
 ## Owner hardware checks
 

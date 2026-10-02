@@ -24,7 +24,8 @@ $patchPaths = @(
     'patches/upstream/0001-mohammedlab-launcher.patch',
     'patches/upstream/0002-ffmpeg-source-lock.patch',
     'patches/upstream/0003-vulkan-extent-initializers.patch',
-    'patches/upstream/0004-label-vulkan-device-tests.patch'
+    'patches/upstream/0004-label-vulkan-device-tests.patch',
+    'patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch'
 )
 
 if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt'))) {
@@ -216,7 +217,7 @@ try {
         'Emulator: upstream kyty_emulator.exe built from the pinned source',
         'No Sony firmware, SDK, keys, or games are included.',
         '',
-        'Applied source patch SHA-256:',
+        'Tracked source patch SHA-256:',
         $patchHashes,
         '',
         'Toolchain:',
@@ -427,6 +428,7 @@ try {
             'MohammedLab-PS5-source/patches/upstream/0002-ffmpeg-source-lock.patch',
             'MohammedLab-PS5-source/patches/upstream/0003-vulkan-extent-initializers.patch',
             'MohammedLab-PS5-source/patches/upstream/0004-label-vulkan-device-tests.patch',
+            'MohammedLab-PS5-source/patches/ci/0001-swiftshader-no-mp-for-clang-cl.patch',
             'MohammedLab-PS5-source/licenses/vcpkg/vulkan-tools/copyright',
             'MohammedLab-PS5-source/licenses/vcpkg/vulkan-loader/copyright',
             'MohammedLab-PS5-source/licenses/vcpkg/volk/copyright',
