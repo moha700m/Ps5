@@ -1,0 +1,3 @@
+# MohammedLab PS5
+
+Follow AGENTS.md and the complete docs/IMPLEMENTATION_TASK.md. The owner requests a real Windows PS5 emulator derivative based on pinned KytyPS5, not a mock launcher. Build baseline with Windows clang-cl and recursive dependencies, then continue native Arabic RTL/English UI, real hardware/input diagnostics, settings, validated portable ZIP, corresponding source and honest verification report. A submodule or workflow alone does not finish this task. Keep unsupported features explicit, preserve emulation logic and licenses, and record physical GPU/game/controller tests as NOT TESTED when unavailable. Work only in moha700m/Ps5; do not contact upstream, merge PRs or publish Releases.
