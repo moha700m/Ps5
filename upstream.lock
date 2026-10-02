@@ -23,14 +23,29 @@ Pinned FetchContent refs in 3rdparty/CMakeLists.txt:
   zstd f8745da6ff1ad1e7bab384bd1f9d742439278e99
   ZArchive d2c717730092c7bf8cbb033b12fd4001b7c4d932 (applies upstream 3rdparty/patches/zarchive-reader.patch)
 
+Pinned Windows build dependencies:
+  microsoft/vcpkg df8bfe519564ae001903e5cdd32af0999531ef71
+    port glslang 15.1.0; requested features: tools,opt
+    glslang port manifest Git blob SHA-1: 25e3580b9491897b69f160fc73c92812cfa54356
+  ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341
+    FFmpeg Windows x64 archive: ffmpeg-windows-x64.zip
+    FFmpeg archive SHA-256: 32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09
+
 Windows build inputs:
   Runner: windows-2022
   Generator/compiler: Ninja / Visual Studio 2022 environment / clang-cl (not cl.exe)
   Qt: 6.10.3, win64_msvc2022_64
-  glslang: Windows runner vcpkg glslang[tools,opt]:x64-windows; exact vcpkg registry revision is runner-image managed
+  glslang: pinned vcpkg port above, x64-windows triplet
 
 GitHub Actions (full commit pins):
   actions/checkout v4.2.2 11bd71901bbe5b1630ceea73d27597364c9af683
   ilammy/msvc-dev-cmd v1 0b201ec74fa43914dc39ae48a89fd1d8cb592756
   jurplel/install-qt-action v4.3.0 d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005
   actions/upload-artifact v4.6.2 ea165f8d65b6e75b540449e92b4886f43607fa02
+  actions/cache v4.2.3 5a3ec84eff668545956fd18022155c47e93e2684
+
+Tracked patches (applied to clean submodule checkouts by scripts/apply-upstream-patches.ps1):
+  patches/upstream/0001-mohammedlab-launcher.patch
+    Native Qt bilingual language selection, SDL controller tester, Vulkan diagnostics, tests.
+  patches/upstream/0002-ffmpeg-source-lock.patch
+    Pinned Windows FFmpeg archive verification/retries and source-archive revision fallback.

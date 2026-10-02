@@ -8,15 +8,17 @@ successful package.
 | Check | Result | Environment/evidence |
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
-| Recursive dependencies | Workflow-gated | Windows checkout initializes recursive submodules; package script checks source entries and records refs |
+| Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock` |
 | Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: `action_required`; zero jobs started | [Initial run](https://github.com/moha700m/Ps5/actions/runs/36951673754), commit `a5b88831fc116035a275dc8c50a3f48d344c22ce`; owner approval is required |
 | All registered upstream CTest regressions | BLOCKED: build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no test result exists |
-| Installed EXE, Qt runtime, ZIP entries, archive CRC, SHA-256 | BLOCKED: packaging job did not start | `scripts/package-windows.ps1`; no ZIP or checksum has been produced |
-| Arabic/English native UI and RTL layout | NOT IMPLEMENTED | The included UI remains the pinned upstream launcher |
+| Installed EXE, Qt runtime, third-party/Qt/FFmpeg licenses, ZIP entries, archive CRC, SHA-256 | Workflow-gated | `scripts/package-windows.ps1`; missing licenses/runtime/source entries fail packaging |
+| Tracked native Arabic/English UI, saved choice, RTL/LTR layout | Implemented; GUI test NOT TESTED | Built-in Qt translator and persistent interface-language setting; main UI plus selected game-library controls |
+| Hardware diagnostics | Implemented; physical GPU test NOT TESTED | Queries Vulkan loader/devices and checks reported API/features/extensions; surface, queue presentation, and format checks remain explicitly unknown |
+| SDL gamepad diagnostic | Implemented; physical controller test NOT TESTED | Reads live SDL axes/buttons and polls connection/hotplug; does not claim in-game mapping or haptics |
 | GUI startup and RTL screenshots | NOT TESTED | No Windows desktop session/screenshots are available here |
 | Physical Vulkan GPU rendering | NOT TESTED | Owner must test on a compatible Windows PC |
 | Specific game boot/menu/in-game/playable test | NOT TESTED | Owner must record title, version/title ID, status, duration, and crashes |
-| Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller and test actual game input; no separate tester is claimed |
+| Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller, verify the diagnostic, and test actual game input |
 
 ## Owner hardware checks
 

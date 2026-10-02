@@ -26,7 +26,22 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Checkout locked vcpkg
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: microsoft/vcpkg
+          ref: df8bfe519564ae001903e5cdd32af0999531ef71
+          path: _Build/vcpkg
+          persist-credentials: false
+
+      - name: Cache locked glslang installation
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: _Build/vcpkg/installed
+          key: windows-${{ runner.arch }}-vcpkg-df8bfe519564ae001903e5cdd32af0999531ef71-glslang-15.1.0
+
       - name: Verify pinned source
+        id: source
         shell: pwsh
         run: |
           $expected = 'b3e419ff1101999525fa2d061ada1d102cf788b1'
@@ -44,16 +59,30 @@ jobs:
       - name: Install glslang
         shell: pwsh
         run: |
-          $vcpkgRoot = Split-Path (Get-Command vcpkg).Source
-          vcpkg install glslang[tools,opt]:x64-windows
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '_Build/vcpkg'
+          $expectedVcpkg = 'df8bfe519564ae001903e5cdd32af0999531ef71'
+          $actualVcpkg = git -C $vcpkgRoot rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actualVcpkg -ne $expectedVcpkg) {
+            throw "Unexpected vcpkg revision: $actualVcpkg"
+          }
+          & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install 'glslang[tools,opt]:x64-windows'
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg glslang installation failed' }
-          $glslangDir = Join-Path $vcpkgRoot `
-            'installed\x64-windows\tools\glslang'
+          $glslangDir = Join-Path $vcpkgRoot 'installed\x64-windows\tools\glslang'
           if (-not (Test-Path (Join-Path $glslangDir 'glslangValidator.exe'))) {
             throw "glslangValidator missing from $glslangDir"
           }
-          $glslangDir | Out-File -FilePath $env:GITHUB_PATH `
-            -Encoding utf8 -Append
+          $glslangPackage = & (Join-Path $vcpkgRoot 'vcpkg.exe') list |
+            Select-String '^glslang:x64-windows '
+          if (-not $glslangPackage -or $glslangPackage.Line -notmatch '15\.1\.0') {
+            throw "Unexpected installed glslang package: $glslangPackage"
+          }
+          "VCPKG_COMMIT=$actualVcpkg" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GLSLANG_PACKAGE=$($glslangPackage.Line.Trim())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $glslangDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Qt 6.10.3
         uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005
@@ -65,6 +94,7 @@ jobs:
           cache: true
 
       - name: Verify toolchain
+        id: toolchain
         shell: pwsh
         run: |
           git --version
@@ -74,9 +104,16 @@ jobs:
           glslangValidator --version
           Write-Host "Qt6_DIR=$env:Qt6_DIR"
 
+      - name: Apply tracked source patches
+        id: patch
+        shell: pwsh
+        run: ./scripts/apply-upstream-patches.ps1
+
       - name: Configure pinned baseline
+        id: configure
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path _Build/reports -Force | Out-Null
           cmake -S upstream/KytyPS5 -B _Build/windows -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON `
@@ -84,23 +121,30 @@ jobs:
             -DKYTY_BUILD_REPOSITORY="${{ github.repository }}" `
             -DCMAKE_C_COMPILER=clang-cl `
             -DCMAKE_CXX_COMPILER=clang-cl `
-            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" 2>&1 |
+            Tee-Object -FilePath _Build/reports/configure.log
           if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
 
       - name: Build launcher, emulator, and every registered test executable
+        id: build
         shell: pwsh
         run: |
           cmake --build _Build/windows --target launcher kyty_emulator `
-            kyty_tests --parallel
+            kyty_tests --parallel 2>&1 |
+            Tee-Object -FilePath _Build/reports/build.log
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
       - name: Run all registered CTest regressions
+        id: ctest
         shell: pwsh
         run: |
-          ctest --test-dir _Build/windows --output-on-failure --no-tests=error
+          ctest --test-dir _Build/windows --output-on-failure --no-tests=error `
+            --output-log _Build/reports/ctest.log 2>&1 |
+            Tee-Object -FilePath _Build/reports/ctest-console.log
           if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
 
       - name: Install and validate portable package
+        id: package
         shell: pwsh
         run: |
           cmake --install _Build/windows --prefix _Build/windows/install
@@ -110,6 +154,44 @@ jobs:
             -SourceDirectory . `
             -OutputDirectory artifacts `
             -Commit "${{ github.sha }}"
+
+      - name: Write verification report
+        if: always()
+        shell: pwsh
+        env:
+          SOURCE_RESULT: ${{ steps.patch.outcome }}
+          TOOLCHAIN_RESULT: ${{ steps.toolchain.outcome }}
+          CONFIGURE_RESULT: ${{ steps.configure.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          CTEST_RESULT: ${{ steps.ctest.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
+        run: |
+          New-Item -ItemType Directory -Path artifacts/reports -Force | Out-Null
+          @(
+            "Commit: $env:GITHUB_SHA"
+            "Runner: windows-2022"
+            "Pinned KytyPS5: b3e419ff1101999525fa2d061ada1d102cf788b1"
+            "Pinned vcpkg: $env:VCPKG_COMMIT"
+            "glslang: $env:GLSLANG_PACKAGE"
+            "Source checkout: $env:SOURCE_RESULT"
+            "Toolchain verification: $env:TOOLCHAIN_RESULT"
+            "CMake configure: $env:CONFIGURE_RESULT"
+            "Build: $env:BUILD_RESULT"
+            "CTest: $env:CTEST_RESULT"
+            "Packaging: $env:PACKAGE_RESULT"
+          ) | Set-Content -LiteralPath artifacts/reports/VERIFICATION.txt -Encoding utf8
+          if (Test-Path _Build/reports) {
+            Copy-Item _Build/reports/* artifacts/reports/ -Force
+          }
+
+      - name: Upload build and test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MohammedLab-PS5-Windows-reports
+          path: artifacts/reports/**
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload validated Windows ZIP and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -14,13 +14,29 @@ $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 $engine = Join-Path $source 'upstream/KytyPS5'
 $upstreamSha = 'b3e419ff1101999525fa2d061ada1d102cf788b1'
-$build = Join-Path $source '_Build/windows'
+$vcpkgSha = 'df8bfe519564ae001903e5cdd32af0999531ef71'
+$ffmpegArchiveSha256 = '32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09'
+$patchPaths = @(
+    'patches/upstream/0001-mohammedlab-launcher.patch',
+    'patches/upstream/0002-ffmpeg-source-lock.patch'
+)
 
 if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt'))) {
     throw 'Pinned KytyPS5 source is missing'
 }
 if ((git -C $engine rev-parse HEAD) -ne $upstreamSha) {
     throw 'Pinned KytyPS5 source commit does not match upstream.lock'
+}
+if ($env:VCPKG_COMMIT -ne $vcpkgSha -or $env:GLSLANG_PACKAGE -notmatch '15\.1\.0') {
+    throw "Unexpected vcpkg/glslang versions: $env:VCPKG_COMMIT / $env:GLSLANG_PACKAGE"
+}
+$patchHashes = foreach ($relativePath in $patchPaths) {
+    $patch = Join-Path $source $relativePath
+    if (-not (Test-Path -LiteralPath $patch -PathType Leaf)) {
+        throw "Required source patch missing: $relativePath"
+    }
+    $digest = (Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$relativePath SHA256=$digest"
 }
 
 function Assert-Pe64([string]$Path) {
@@ -77,6 +93,27 @@ if (-not ($licenseFiles | Where-Object { $_.FullName -eq (Join-Path $engine 'LIC
 if (-not ($licenseFiles | Where-Object { $_.FullName -eq (Join-Path $engine 'LICENSES/Kyty-MIT.txt') })) {
     throw 'Original Kyty MIT notice is missing'
 }
+$ffmpegLicenseDirectory = Join-Path $install 'licenses/ffmpeg'
+foreach ($relativePath in @('copyright', 'SOURCE.txt', 'build-log.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ffmpegLicenseDirectory $relativePath) -PathType Leaf)) {
+        throw "Required FFmpeg license/provenance file missing: licenses/ffmpeg/$relativePath"
+    }
+}
+$qtRoot = [System.IO.Path]::GetFullPath((Join-Path $env:Qt6_DIR '..\..\..'))
+$qtLicensesAtInstallRoot = Join-Path $qtRoot 'licenses'
+$qtLicensesAtQtRoot = [System.IO.Path]::GetFullPath(
+    (Join-Path $env:Qt6_DIR '..\..\..\..\..\Licenses'))
+$qtLicenseRoot = @($qtLicensesAtInstallRoot, $qtLicensesAtQtRoot) |
+    Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+    Select-Object -First 1
+if (-not $qtLicenseRoot) {
+    throw "Qt license directory is missing; checked $qtLicensesAtInstallRoot and $qtLicensesAtQtRoot"
+}
+$qtLicenseFiles = @(Get-ChildItem -LiteralPath $qtLicenseRoot -Force -Recurse -File |
+    Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)(\..*)?$' })
+if ($qtLicenseFiles.Count -eq 0) {
+    throw 'No Qt license notices found in the pinned Qt installation'
+}
 
 if (Test-Path -LiteralPath $output) {
     Remove-Item -LiteralPath $output -Recurse -Force
@@ -86,6 +123,8 @@ $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("MohammedLabPS5-" + [guid]
 $package = Join-Path $stage 'package'
 $licenseDestination = Join-Path $package 'licenses/third-party'
 New-Item -ItemType Directory -Path $licenseDestination -Force | Out-Null
+$qtLicenseDestination = Join-Path $package 'licenses/Qt'
+New-Item -ItemType Directory -Path $qtLicenseDestination -Force | Out-Null
 
 try {
     Get-ChildItem -LiteralPath $install -Force |
@@ -102,10 +141,18 @@ try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $license.FullName -Destination $destination
     }
+    foreach ($license in $qtLicenseFiles) {
+        $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
+        $destination = Join-Path $qtLicenseDestination $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $license.FullName -Destination $destination
+    }
 
     $toolchain = @(
         "Windows runner: windows-2022",
         "Qt: 6.10.3 (MSVC 2022 x64)",
+        "vcpkg commit: $env:VCPKG_COMMIT",
+        "glslang port: $env:GLSLANG_PACKAGE",
         "CMake: $((cmake --version | Select-Object -First 1).Trim())",
         "Ninja: $((ninja --version).Trim())",
         "clang-cl: $((clang-cl --version | Select-Object -First 1).Trim())",
@@ -120,8 +167,15 @@ try {
         "Repository commit: $Commit",
         "Pinned KytyPS5 commit: $upstreamSha",
         "Qt version: 6.10.3",
+        "Pinned vcpkg revision: $vcpkgSha",
+        "Pinned glslang version: 15.1.0 with tools,opt features",
+        "Pinned FFmpeg recipe/source: ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341",
+        "FFmpeg Windows x64 archive SHA256: $ffmpegArchiveSha256",
         'Emulator: upstream kyty_emulator.exe built from the pinned source',
         'No Sony firmware, SDK, keys, or games are included.',
+        '',
+        'Applied source patch SHA-256:',
+        $patchHashes,
         '',
         'Toolchain:',
         $toolchain,
@@ -129,7 +183,7 @@ try {
         'Recursive submodules:',
         $submodules,
         '',
-        'Note: glslang is installed from the windows-2022 runner vcpkg registry; its registry revision is runner-image managed.'
+        'Qt runtime license texts and FFmpeg license/provenance files are included under licenses/.'
     ) -join "`r`n"
     $manifestPath = Join-Path $package 'build-manifest.txt'
     [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
@@ -222,9 +276,14 @@ try {
         foreach ($requiredEntry in @(
             'launcher.exe', 'kyty_emulator.exe', 'platforms/qwindows.dll',
             'build-manifest.txt', 'README-EN.md', 'README-AR.md', 'LICENSE',
-            'LICENSES-Kyty-MIT.txt'
+            'LICENSES-Kyty-MIT.txt', 'licenses/Qt/', 'licenses/ffmpeg/copyright',
+            'licenses/ffmpeg/SOURCE.txt', 'licenses/ffmpeg/build-log.txt'
         )) {
-            if ($requiredEntry -notin $entries) {
+            if ($requiredEntry.EndsWith('/') -and
+                -not ($entries | Where-Object { $_.StartsWith($requiredEntry) })) {
+                throw "Required Windows archive directory missing: $requiredEntry"
+            }
+            if (-not $requiredEntry.EndsWith('/') -and $requiredEntry -notin $entries) {
                 throw "Required Windows archive entry missing: $requiredEntry"
             }
         }
@@ -241,10 +300,38 @@ try {
             'MohammedLab-PS5-source/upstream/KytyPS5/CMakeLists.txt',
             'MohammedLab-PS5-source/upstream/KytyPS5/src/main.cpp',
             'MohammedLab-PS5-source/upstream/KytyPS5/3rdparty/SDL3/CMakeLists.txt',
+            'MohammedLab-PS5-source/upstream/KytyPS5/3rdparty/ffmpeg-core/CMakeLists.txt',
+            'MohammedLab-PS5-source/patches/upstream/0001-mohammedlab-launcher.patch',
+            'MohammedLab-PS5-source/patches/upstream/0002-ffmpeg-source-lock.patch',
+            'MohammedLab-PS5-source/scripts/apply-upstream-patches.ps1',
+            'MohammedLab-PS5-source/upstream.lock',
             'MohammedLab-PS5-source/build-manifest.txt'
         )) {
             if ($requiredEntry -notin $sourceEntries) {
                 throw "Required recursive source archive entry missing: $requiredEntry"
+            }
+        }
+    }
+    finally {
+        $sourceArchive.Dispose()
+    }
+
+    $sourceArchive = [System.IO.Compression.ZipFile]::Open($sourceZip, [System.IO.Compression.ZipArchiveMode]::Update)
+    try {
+        foreach ($license in $qtLicenseFiles) {
+            $relative = [System.IO.Path]::GetRelativePath($qtLicenseRoot, $license.FullName)
+            $entryName = "MohammedLab-PS5-source/licenses/Qt/$($relative -replace '\\', '/')"
+            $entry = $sourceArchive.CreateEntry(
+                $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+            )
+            $entryStream = $entry.Open()
+            $inputStream = [System.IO.File]::OpenRead($license.FullName)
+            try {
+                $inputStream.CopyTo($entryStream)
+            }
+            finally {
+                $inputStream.Dispose()
+                $entryStream.Dispose()
             }
         }
     }
