@@ -1,12 +1,7 @@
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 0000000..0000000 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -661,5 +661,29 @@ if(BUILD_TESTING)
- 		add_test(NAME buffer_cache_ranges
- 			COMMAND $<TARGET_FILE:shader_recompiler_compute_tests> --buffer-cache-range-only)
- 	endif()
- 
+@@ -664,0 +665,24 @@
 +	set_tests_properties(
 +		kernel_file_system
 +		shader_recompiler_compute
