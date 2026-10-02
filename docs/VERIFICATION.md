@@ -9,9 +9,9 @@ successful package.
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
 | Recursive dependencies | Workflow-gated | Windows checkout initializes recursive submodules; package script checks source entries and records refs |
-| Windows clang-cl/Ninja/CMake/Qt build | Not yet run in this session | Requires the `windows-2022` Actions runner; inspect the workflow run before claiming success |
-| All registered upstream CTest regressions | Not yet run in this session | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error` |
-| Installed EXE, Qt runtime, ZIP entries, archive CRC, SHA-256 | Workflow-gated | `scripts/package-windows.ps1`; only uploaded on success |
+| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: `action_required`; zero jobs started | [Initial run](https://github.com/moha700m/Ps5/actions/runs/36951673754), commit `a5b88831fc116035a275dc8c50a3f48d344c22ce`; owner approval is required |
+| All registered upstream CTest regressions | BLOCKED: build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no test result exists |
+| Installed EXE, Qt runtime, ZIP entries, archive CRC, SHA-256 | BLOCKED: packaging job did not start | `scripts/package-windows.ps1`; no ZIP or checksum has been produced |
 | Arabic/English native UI and RTL layout | NOT IMPLEMENTED | The included UI remains the pinned upstream launcher |
 | GUI startup and RTL screenshots | NOT TESTED | No Windows desktop session/screenshots are available here |
 | Physical Vulkan GPU rendering | NOT TESTED | Owner must test on a compatible Windows PC |

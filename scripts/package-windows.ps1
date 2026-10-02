@@ -197,7 +197,13 @@ try {
                 throw "Archive is empty: $zip"
             }
             foreach ($entry in $archive.Entries) {
-                $null = $entry.Open().CopyTo([System.IO.Stream]::Null)
+                $entryStream = $entry.Open()
+                try {
+                    $entryStream.CopyTo([System.IO.Stream]::Null)
+                }
+                finally {
+                    $entryStream.Dispose()
+                }
             }
         }
         finally {
