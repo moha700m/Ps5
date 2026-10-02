@@ -16,7 +16,7 @@ $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 $engine = Join-Path $source 'upstream/KytyPS5'
 $upstreamSha = 'b3e419ff1101999525fa2d061ada1d102cf788b1'
-$vcpkgSha = 'df8bfe519564ae001903e5cdd32af0999531ef71'
+$vcpkgSha = '9624c70bcc649d9ecff24185a72b12e0001de6f7'
 $ffmpegArchiveSha256 = '32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09'
 $patchPaths = @(
     'patches/upstream/0001-mohammedlab-launcher.patch',
@@ -30,7 +30,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $engine 'CMakeLists.txt'))) {
 if ((git -C $engine rev-parse HEAD) -ne $upstreamSha) {
     throw 'Pinned KytyPS5 source commit does not match upstream.lock'
 }
-if ($env:VCPKG_COMMIT -ne $vcpkgSha -or $env:GLSLANG_PACKAGE -notmatch '15\.1\.0') {
+if ($env:VCPKG_COMMIT -ne $vcpkgSha -or $env:GLSLANG_PACKAGE -notmatch '16\.1\.0') {
     throw "Unexpected vcpkg/glslang versions: $env:VCPKG_COMMIT / $env:GLSLANG_PACKAGE"
 }
 $patchHashes = foreach ($relativePath in $patchPaths) {
@@ -196,7 +196,7 @@ try {
         "Pinned KytyPS5 commit: $upstreamSha",
         "Qt version: 6.10.3",
         "Pinned vcpkg revision: $vcpkgSha",
-        "Pinned glslang version: 15.1.0 with tools,opt features; vcpkg copyright notices are included under licenses/vcpkg",
+        "Pinned glslang version: 16.1.0 with tools,opt features; MSYS2 runtime 3.6.5-1 is SHA-512 locked in upstream.lock; vcpkg copyright notices are included under licenses/vcpkg",
         "Pinned FFmpeg recipe/source: ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341",
         "FFmpeg Windows x64 archive SHA256: $ffmpegArchiveSha256",
         'Emulator: upstream kyty_emulator.exe built from the pinned source',

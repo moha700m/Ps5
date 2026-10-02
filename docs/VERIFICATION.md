@@ -9,7 +9,7 @@ successful package.
 | --- | --- | --- |
 | Upstream source reviewed and pinned | Verified | KytyPS5 `b3e419ff1101999525fa2d061ada1d102cf788b1`; see `docs/UPSTREAM.md` |
 | Recursive dependencies and patches | Workflow-gated | Windows checkout initializes pinned refs and applies tracked patches; exact refs are in `upstream.lock`; the source ZIP includes the applied files and patches |
-| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: `action_required`; zero jobs started for revision `91f102adc18785eb73b0d4918d9373b80f9e57a6` | [Run 36960750536](https://github.com/moha700m/Ps5/actions/runs/36960750536); owner approval is required |
+| Windows clang-cl/Ninja/CMake/Qt build | BLOCKED: previous run failed during vcpkg MSYS2 runtime acquisition before configure; updated dependency pin not yet validated | [Run 36963280910](https://github.com/moha700m/Ps5/actions/runs/36963280910); `msys2-runtime-3.5.4-2` download failed; Qt, configure, build, CTest, and packaging were skipped. The workflow now pins vcpkg `9624c70bcc649d9ecff24185a72b12e0001de6f7`, whose lock records runtime `3.6.5-1` and its SHA-512 |
 | Local Linux CMake configure | PASS with SDL console mode only | CMake 3.31.6 / Qt 6.4.2 configured the patched source with pinned FetchContent dependencies and verified the FFmpeg archive digest; the normal desktop configure lacked X11/Wayland development packages. This does not validate Windows or a desktop UI |
 | Local Linux full launcher build | BLOCKED on a pinned upstream error | GCC 13.3 rejects the default constructor of `Ngs2RackOptionUnion` in `src/libs/ngs2.cpp:1183` because its members have non-trivial constructors. This is outside the UI/diagnostic patches; no emulation change was made. The required Windows clang-cl workflow remains approval-gated |
 | All registered upstream CTest regressions | BLOCKED: current revision build job did not start | The workflow builds `kyty_tests` and runs CTest with `--no-tests=error`; no result exists for the current source. [Earlier run 36951845559](https://github.com/moha700m/Ps5/actions/runs/36951845559) was still at toolchain verification on the preceding revision |
@@ -27,12 +27,13 @@ successful package.
 | Specific game boot/menu/in-game/playable test | NOT TESTED | Owner must record title, version/title ID, status, duration, and crashes |
 | Physical controller live test / in-game input | NOT TESTED | Owner must connect the controller, verify the diagnostic, and test actual game input |
 
-The most recent workflow execution with a job, run 36951845559 on the preceding
-source revision, was observed at toolchain verification. The Actions job-log
-endpoint returned HTTP 404 while that job was still running. The later run for
-revision `91f102adc18785eb73b0d4918d9373b80f9e57a6` is `action_required` with
-zero jobs; neither is evidence of a successful configure, build, CTest, or
-Windows package.
+Run 36963280910 is the most recent relevant executed workflow: dependency
+installation failed before Qt setup or CMake. The previous pin requested the
+removed MSYS2 runtime `3.5.4-2`; this change pins a vcpkg revision recording
+runtime `3.6.5-1` and checks `glslangValidator` 16.1.0 before configure. No
+rerun is available in this session, so Windows configure/build/CTest and both
+ZIPs remain unverified and no Windows artifact exists. Earlier run 36960750536
+is `action_required` with zero jobs.
 
 ## Owner hardware checks
 

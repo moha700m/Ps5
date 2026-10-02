@@ -24,9 +24,12 @@ Pinned FetchContent refs in 3rdparty/CMakeLists.txt:
   ZArchive d2c717730092c7bf8cbb033b12fd4001b7c4d932 (applies upstream 3rdparty/patches/zarchive-reader.patch)
 
 Pinned Windows build dependencies:
-  microsoft/vcpkg df8bfe519564ae001903e5cdd32af0999531ef71
-    port glslang 15.1.0; requested features: tools,opt
-    glslang port manifest Git blob SHA-1: 25e3580b9491897b69f160fc73c92812cfa54356
+  microsoft/vcpkg 9624c70bcc649d9ecff24185a72b12e0001de6f7
+    port glslang 16.1.0; requested features: tools,opt
+    glslang port manifest Git blob SHA-1: d873d57219c8b795d920396013e8ada77f73110b
+    glslang license expression: Apache-2.0 AND BSD-3-Clause AND MIT AND GPL-3.0-or-later
+    MSYS2 runtime package: msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+    MSYS2 runtime SHA-512: 974dbe29e35b04a4a4f5ffbfed1327702c5eb34cfbfafd45e00df3553e66ca3a4a92cf8b69dbb42b8e3c2ef034281ea73888c03c271ad28ce12fee32ce1bbf3d
   ext-ffmpeg-core 9ac4cfd195f192ed8b08566f49c28dbb48d08341
     FFmpeg Windows x64 archive: ffmpeg-windows-x64.zip
     FFmpeg archive SHA-256: 32839a244a418063f6fb4bbe55585bc66ea17a859b920cae0e3aa1eab9398c09

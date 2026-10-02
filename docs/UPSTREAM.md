@@ -31,9 +31,12 @@ The small Vulkan-Hpp patch makes existing extent, offset, and descriptor-value
 assignments explicit; it resolves ambiguous assignment errors found in the
 local pinned-source build without changing renderer behavior.
 
-The Windows workflow checks out vcpkg at the immutable commit in the lock,
-verifies the `glslang` 15.1.0 port and features, then caches the resulting
-installed tree under a key containing that pin. The FFmpeg source revision is
+The Windows workflow checks out vcpkg at the immutable commit in the lock.
+That revision records the MSYS2 runtime archive name and SHA-512 in the lock
+(3.6.5-1), replacing the deleted 3.5.4-2 package used by the previous pin. It
+verifies the `glslang` 16.1.0 port and `glslangValidator` version, with the
+requested `tools,opt` features, then caches the installed tree under a key
+containing those pins. The FFmpeg source revision is
 the pinned recursive gitlink; the actual static Windows archive digest is
 recorded separately. The FFmpeg install step contributes its copyright,
 build-log, and source provenance under `licenses/ffmpeg`. Qt license texts
@@ -53,7 +56,7 @@ clang-cl, then restore vcpkg and build:
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg.git _Build/vcpkg
-git -C _Build/vcpkg checkout df8bfe519564ae001903e5cdd32af0999531ef71
+git -C _Build/vcpkg checkout 9624c70bcc649d9ecff24185a72b12e0001de6f7
 ./_Build/vcpkg/bootstrap-vcpkg.bat -disableMetrics
 ./_Build/vcpkg/vcpkg.exe install 'glslang[tools,opt]:x64-windows'
 ./scripts/apply-upstream-patches.ps1
